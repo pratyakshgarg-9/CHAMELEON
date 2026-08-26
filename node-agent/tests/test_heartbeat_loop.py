@@ -24,7 +24,9 @@ async def test_heartbeat_once_records_latency_on_success(monkeypatch):
 
     peer = registry.list_all()[0]
     assert peer.latency_ms is not None
-    assert peer.latency_ms >= 20
+    # Loose floor, not ~20ms exactly — sleep()/perf_counter() granularity
+    # can land a hair under the nominal delay depending on OS scheduling.
+    assert peer.latency_ms >= 10
     assert peer.last_seen is not None
 
 

@@ -29,6 +29,20 @@ async def post_json(url: str, json_body: dict) -> Optional[dict]:
     return None
 
 
+async def post_multipart(url: str, files: dict, data: dict) -> Optional[dict]:
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                resp = await client.post(url, files=files, data=data)
+                resp.raise_for_status()
+                return resp.json()
+            except (httpx.HTTPError, ValueError) as exc:
+                logger.warning(
+                    "POST %s (multipart) failed (attempt %d/%d): %s", url, attempt, MAX_ATTEMPTS, exc
+                )
+    return None
+
+
 async def get_json(url: str) -> Optional[dict]:
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         for attempt in range(1, MAX_ATTEMPTS + 1):

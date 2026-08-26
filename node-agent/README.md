@@ -11,6 +11,12 @@ scope/build order and `/shared` for the cross-service contract. Built so far:
   (`app/heartbeat_loop.py`): periodically pings every known neighbor's
   `/heartbeat` and records round-trip latency, which now flows into both
   `GET /stats`'s `latency_ms` and `GET /neighbors`.
+- **Component 4** — container migration (`app/docker_client.py`,
+  `app/routes/migrate.py`): `POST /migrate-out` stops+commits+removes a
+  local container, ships the image straight to the destination's
+  `POST /migrate-in` over HTTP (multipart), which loads it and runs an
+  equivalent container. Needs a local Docker daemon — see "Trying migration
+  locally" below.
 
 ## Local setup
 
@@ -64,6 +70,22 @@ and shows up in `GET /neighbors`. After one `HEARTBEAT_INTERVAL_SECONDS`
 (default 10s), `GET /stats` and `GET /neighbors` on either node will show a
 real measured `latency_ms` to the other.
 
+## Trying migration locally
+
+Needs a running Docker daemon (Docker Desktop). Both node-agent instances
+below share your one local daemon, so this proves the HTTP + migration
+mechanics for real, just not literally-separate-daemon behavior — good
+enough for local dev, not a substitute for a real multi-VM check later.
+
+```bash
+docker run -d --name migration-demo busybox sleep 600
+
+curl -X POST http://localhost:8000/migrate-out -H "Content-Type: application/json" \
+  -d "{\"container_name\":\"migration-demo\",\"destination_node\":\"regA-c1-edge2\"}"
+
+docker ps -a --filter name=migration-demo   # same name, new container ID
+```
+
 ## Tests
 
 ```bash
@@ -73,14 +95,19 @@ pytest
 Includes a schema-conformance test (`tests/test_stats.py`) that validates a
 live `/stats` response against `/shared/schemas/stats_payload.schema.json`
 directly, so drift from the source of truth fails a test instead of going
-unnoticed.
+unnoticed. `tests/test_docker_client.py` (marked `docker`) exercises the
+real migration mechanics against a real container — needs Docker running;
+`tests/test_migrate_routes.py` covers the HTTP layer with Docker calls
+mocked, so the rest of the suite doesn't need Docker at all.
 
 ## Known gaps (intentional, deferred to later steps)
 
 - mTLS isn't applied to outbound calls yet (`app/clients.py` has a `TODO`) —
   blocked on Member 3 issuing real per-node certs, per root-CLAUDE.md's
   status board.
-- Container migration, the scheduler, and leader election (components 4, 5,
-  6) aren't built yet.
-- Migration will need Docker installed locally to exercise — not required
-  for anything in this step.
+- Migration doesn't handle volumes/mounts — only port bindings and restart
+  policy are captured and reapplied. Migrating stateful volume data is a
+  bigger problem than this build addresses.
+- The scheduler and leader election (components 5, 6) aren't built yet —
+  `/migrate-out` is manually triggerable but nothing calls it automatically
+  on overload yet.

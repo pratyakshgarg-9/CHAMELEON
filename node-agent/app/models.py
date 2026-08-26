@@ -69,3 +69,21 @@ class HeartbeatResponse(BaseModel):
     node_id: str
     timestamp: str
     status: str
+
+
+class MigrateOutRequest(BaseModel):
+    container_name: str
+    destination_node: str
+
+
+class MigrateOutResponse(BaseModel):
+    status: str
+    container_name: str
+    destination_node: Optional[str] = None
+    detail: Optional[str] = None
+
+
+class MigrateInResponse(BaseModel):
+    status: str
+    container_name: str
+    node_id: str

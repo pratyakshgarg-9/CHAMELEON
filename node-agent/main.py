@@ -8,7 +8,7 @@ from app.clients import post_json
 from app.config import settings
 from app.heartbeat_loop import run_heartbeat_loop
 from app.neighbors import PeerRegistry, load_neighbors
-from app.routes import health, heartbeat, neighbors_route, register, stats_route
+from app.routes import health, heartbeat, migrate, neighbors_route, register, stats_route
 from app.stats import run_cpu_sampler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -64,3 +64,4 @@ app.include_router(stats_route.router)
 app.include_router(neighbors_route.router)
 app.include_router(register.router)
 app.include_router(heartbeat.router)
+app.include_router(migrate.router)
