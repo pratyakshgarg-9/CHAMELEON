@@ -87,3 +87,26 @@ class MigrateInResponse(BaseModel):
     status: str
     container_name: str
     node_id: str
+
+
+class ElectionRequest(BaseModel):
+    from_node_id: str
+
+
+class ElectionResponse(BaseModel):
+    status: str
+    node_id: str
+
+
+class CoordinatorRequest(BaseModel):
+    leader_node_id: str
+
+
+class CoordinatorResponse(BaseModel):
+    status: str
+    node_id: str
+
+
+class LeaderResponse(BaseModel):
+    leader_node_id: Optional[str] = None
+    node_id: str

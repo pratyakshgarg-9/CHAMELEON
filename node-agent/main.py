@@ -6,9 +6,10 @@ from fastapi import FastAPI
 
 from app.clients import post_json
 from app.config import settings
+from app.election import ElectionState, run_election_monitor
 from app.heartbeat_loop import run_heartbeat_loop
 from app.neighbors import PeerRegistry, load_neighbors
-from app.routes import health, heartbeat, migrate, neighbors_route, register, stats_route
+from app.routes import election, health, heartbeat, migrate, neighbors_route, register, stats_route
 from app.scheduler import OverloadTracker, run_scheduler_loop
 from app.stats import run_cpu_sampler
 
@@ -42,13 +43,16 @@ async def _announce_to_neighbors(registry: PeerRegistry) -> None:
 async def lifespan(app: FastAPI):
     registry = PeerRegistry(load_neighbors(settings.NEIGHBORS_FILE))
     app.state.registry = registry
+    election_state = ElectionState()
+    app.state.election = election_state
 
     sampler_task = asyncio.create_task(run_cpu_sampler())
     announce_task = asyncio.create_task(_announce_to_neighbors(registry))
     heartbeat_task = asyncio.create_task(run_heartbeat_loop(registry))
     scheduler_task = asyncio.create_task(run_scheduler_loop(registry, OverloadTracker()))
+    election_task = asyncio.create_task(run_election_monitor(registry, election_state))
 
-    background_tasks = (sampler_task, announce_task, heartbeat_task, scheduler_task)
+    background_tasks = (sampler_task, announce_task, heartbeat_task, scheduler_task, election_task)
 
     yield
 
@@ -69,3 +73,4 @@ app.include_router(neighbors_route.router)
 app.include_router(register.router)
 app.include_router(heartbeat.router)
 app.include_router(migrate.router)
+app.include_router(election.router)

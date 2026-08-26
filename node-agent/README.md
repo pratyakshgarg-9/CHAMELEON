@@ -24,6 +24,18 @@ scope/build order and `/shared` for the cross-service contract. Built so far:
   (must be a real candidate or the literal `"none"` — never trusted blindly),
   and triggers a real migration of `MANAGED_CONTAINER_NAME` via the same
   logic `/migrate-out` uses. Inactive unless `MANAGED_CONTAINER_NAME` is set.
+- **Component 6** — leader election (`app/election.py`, `app/routes
+  /election.py`): Bully algorithm, highest `node_id` wins, scoped to peers
+  sharing this node's `region`+`cluster`. `POST /election`/`POST
+  /coordinator` implement the protocol; `GET /leader` reports what this node
+  currently believes. Re-verifies every `ELECTION_CHECK_INTERVAL_SECONDS`
+  tick even when this node already believes itself leader — deliberately,
+  since a node can trivially win its own bootstrap election before it's
+  finished learning about peers, and without periodic re-verification that
+  race leaves a permanent split-brain (found via a live 3-node run; see the
+  comment on `check_leader_liveness`). Piggybacks on the component-3
+  heartbeat loop's `last_seen` data to detect a dead leader — no separate
+  ping mechanism.
 
 ## Local setup
 
@@ -100,6 +112,17 @@ so real background CPU usage trips it within a few polls — watch the logs
 for `sustained overload detected` → `triggering migration of ...` →
 `migration outcome: ...`.
 
+## Trying leader election locally
+
+Start 3 instances (three `NODE_ID`/`PORT`/`SELF_URL` triples, each
+`neighbors.yaml` listing the other two — same pattern as the two-node setup
+above). Poll `GET /leader` on each; they converge on whichever has the
+highest `node_id`. Kill that process and poll the survivors again — they
+re-elect among themselves within roughly `HEARTBEAT_INTERVAL_SECONDS *
+MISSED_HEARTBEATS_BEFORE_ELECTION + ELECTION_CHECK_INTERVAL_SECONDS` of the
+kill. Lowering those three env vars (e.g. to `3`/`2`/`2`) makes this fast
+enough to watch live instead of waiting on the defaults.
+
 ## Tests
 
 ```bash
@@ -124,4 +147,13 @@ mocked, so the rest of the suite doesn't need Docker at all.
   bigger problem than this build addresses.
 - The scheduler always targets a single fixed `MANAGED_CONTAINER_NAME` —
   there's no policy for picking among several containers on a node.
-- Leader election (component 6) isn't built yet.
+- Leader election uses plain string comparison on the full `node_id` for
+  "highest wins" — correct at this project's 3-4 VM scale, but a 10+ node
+  cluster would need numeric suffix comparison to sort correctly (e.g.
+  `edge10` < `edge2` as strings).
+- No node currently *uses* the elected leader for anything — component 6 is
+  the election mechanism itself; wiring leadership into the scheduler or
+  coordinator escalation (`/coordinator/register`, `/coordinator/escalate`
+  per root-CLAUDE.md) is a separate, later integration.
+
+All six components from `node-agent-CLAUDE.md`'s build order are now built.

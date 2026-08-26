@@ -43,5 +43,11 @@ class Settings(BaseSettings):
     SUSTAINED_POLLS: int = 3
     SCHEDULER_INTERVAL_SECONDS: int = 5
 
+    # Leader election (component 6): how often to check whether the known
+    # leader still looks alive, and how many missed heartbeat intervals
+    # before it's considered down and a new election starts.
+    ELECTION_CHECK_INTERVAL_SECONDS: int = 5
+    MISSED_HEARTBEATS_BEFORE_ELECTION: int = 3
+
 
 settings = Settings()
