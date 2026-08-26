@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "recommend_response.schema.json",
+  "title": "Recommend Response",
+  "description": "Returned by the AI Advisor's POST /recommend. recommended_node must always be one of the candidate node_ids sent in the request, or the literal string \"none\" if no candidate qualifies.",
+  "type": "object",
+  "required": ["recommended_node", "score", "reasoning"],
+  "properties": {
+    "recommended_node": { "type": "string" },
+    "score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "reasoning": { "type": "string", "description": "Short human-readable justification, e.g. 'lowest latency + high trust'" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "stats_payload.schema.json",
+  "title": "Node Stats Payload",
+  "description": "Produced by the Node Agent; consumed by the AI Advisor and Trust Service.",
+  "type": "object",
+  "required": ["node_id", "timestamp", "cpu_percent", "mem_percent", "latency_ms", "history_load_avg_5m", "trust_score"],
+  "properties": {
+    "node_id": {
+      "type": "string",
+      "description": "Format: <region>-<cluster>-<node-number>, e.g. regA-c1-edge1",
+      "pattern": "^[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC"
+    },
+    "cpu_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+    "mem_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+    "latency_ms": {
+      "type": "object",
+      "description": "Map of neighbor node_id -> measured round-trip latency in ms",
+      "additionalProperties": { "type": "number", "minimum": 0 }
+    },
+    "history_load_avg_5m": { "type": "number", "minimum": 0, "maximum": 100 },
+    "trust_score": { "type": "number", "minimum": 0, "maximum": 1 }
+  },
+  "additionalProperties": false
+}
