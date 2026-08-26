@@ -68,7 +68,20 @@ def load_image(tar_bytes: bytes):
 
 
 def run_container(image, container_name: str, run_config: dict):
-    return get_client().containers.run(
+    """Creates and starts the container. Removes any existing container
+    under the same name first, so this is safe to call again after a
+    client-side timeout whose server-side operation actually succeeded
+    (the incoming image is authoritative during a migration) — without
+    this, a retry hits an unhandled 409 Conflict instead of just redoing
+    the (idempotent, from the caller's perspective) work.
+    """
+    client = get_client()
+    try:
+        client.containers.get(container_name).remove(force=True)
+    except NotFound:
+        pass
+
+    return client.containers.run(
         image,
         name=container_name,
         detach=True,
@@ -77,7 +90,7 @@ def run_container(image, container_name: str, run_config: dict):
     )
 
 
-def wait_until_running(container, retries: int = 5, delay: float = 0.5) -> bool:
+def wait_until_running(container, retries: int = 10, delay: float = 0.5) -> bool:
     """'Confirm healthy' per node-agent-CLAUDE.md, kept to container-level
     state — arbitrary migrated containers won't have an app-level health
     endpoint we can assume exists."""

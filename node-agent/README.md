@@ -12,11 +12,18 @@ scope/build order and `/shared` for the cross-service contract. Built so far:
   `/heartbeat` and records round-trip latency, which now flows into both
   `GET /stats`'s `latency_ms` and `GET /neighbors`.
 - **Component 4** — container migration (`app/docker_client.py`,
-  `app/routes/migrate.py`): `POST /migrate-out` stops+commits+removes a
-  local container, ships the image straight to the destination's
-  `POST /migrate-in` over HTTP (multipart), which loads it and runs an
-  equivalent container. Needs a local Docker daemon — see "Trying migration
-  locally" below.
+  `app/migration.py`, `app/routes/migrate.py`): `POST /migrate-out`
+  stops+commits+removes a local container, ships the image straight to the
+  destination's `POST /migrate-in` over HTTP (multipart), which loads it and
+  runs an equivalent container. Needs a local Docker daemon — see "Trying
+  migration locally" below.
+- **Component 5** — the scheduler (`app/scheduler.py`): a background loop
+  watches `cpu_percent`/`mem_percent`; once either stays over its threshold
+  for `SUSTAINED_POLLS` consecutive polls, it fetches every neighbor's live
+  `/stats`, asks the advisor for a recommendation, validates the response
+  (must be a real candidate or the literal `"none"` — never trusted blindly),
+  and triggers a real migration of `MANAGED_CONTAINER_NAME` via the same
+  logic `/migrate-out` uses. Inactive unless `MANAGED_CONTAINER_NAME` is set.
 
 ## Local setup
 
@@ -86,6 +93,13 @@ curl -X POST http://localhost:8000/migrate-out -H "Content-Type: application/jso
 docker ps -a --filter name=migration-demo   # same name, new container ID
 ```
 
+To see the scheduler trigger this automatically instead of curling it by
+hand, start a node with `MANAGED_CONTAINER_NAME=migration-demo` and an
+artificially low `CPU_OVERLOAD_THRESHOLD`/`MEM_OVERLOAD_THRESHOLD` (e.g. `1`)
+so real background CPU usage trips it within a few polls — watch the logs
+for `sustained overload detected` → `triggering migration of ...` →
+`migration outcome: ...`.
+
 ## Tests
 
 ```bash
@@ -108,6 +122,6 @@ mocked, so the rest of the suite doesn't need Docker at all.
 - Migration doesn't handle volumes/mounts — only port bindings and restart
   policy are captured and reapplied. Migrating stateful volume data is a
   bigger problem than this build addresses.
-- The scheduler and leader election (components 5, 6) aren't built yet —
-  `/migrate-out` is manually triggerable but nothing calls it automatically
-  on overload yet.
+- The scheduler always targets a single fixed `MANAGED_CONTAINER_NAME` —
+  there's no policy for picking among several containers on a node.
+- Leader election (component 6) isn't built yet.

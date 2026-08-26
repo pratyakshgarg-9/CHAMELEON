@@ -10,6 +10,13 @@ logger = logging.getLogger(__name__)
 TIMEOUT = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)
 MAX_ATTEMPTS = 3  # initial attempt + 2 retries
 
+# Transferring a container image + having the receiver load/run/confirm-
+# healthy it is real work, not a lightweight JSON call — the 5s convention
+# above is too tight for it and risks a false-negative timeout on a request
+# that actually succeeds server-side. post_multipart defaults to this
+# instead; callers can still override.
+MIGRATE_TIMEOUT = httpx.Timeout(connect=3.0, read=60.0, write=30.0, pool=60.0)
+
 # TODO(mTLS): once Member 3 issues real per-node certs (see
 # /shared/certs/README_2.md and root-CLAUDE.md's status checklist), pass
 # cert=(settings.CLIENT_CERT_PATH, settings.CLIENT_KEY_PATH) and
@@ -29,8 +36,10 @@ async def post_json(url: str, json_body: dict) -> Optional[dict]:
     return None
 
 
-async def post_multipart(url: str, files: dict, data: dict) -> Optional[dict]:
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+async def post_multipart(
+    url: str, files: dict, data: dict, timeout: httpx.Timeout = MIGRATE_TIMEOUT
+) -> Optional[dict]:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
                 resp = await client.post(url, files=files, data=data)

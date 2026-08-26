@@ -9,6 +9,7 @@ from app.config import settings
 from app.heartbeat_loop import run_heartbeat_loop
 from app.neighbors import PeerRegistry, load_neighbors
 from app.routes import health, heartbeat, migrate, neighbors_route, register, stats_route
+from app.scheduler import OverloadTracker, run_scheduler_loop
 from app.stats import run_cpu_sampler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -45,12 +46,15 @@ async def lifespan(app: FastAPI):
     sampler_task = asyncio.create_task(run_cpu_sampler())
     announce_task = asyncio.create_task(_announce_to_neighbors(registry))
     heartbeat_task = asyncio.create_task(run_heartbeat_loop(registry))
+    scheduler_task = asyncio.create_task(run_scheduler_loop(registry, OverloadTracker()))
+
+    background_tasks = (sampler_task, announce_task, heartbeat_task, scheduler_task)
 
     yield
 
-    for task in (sampler_task, announce_task, heartbeat_task):
+    for task in background_tasks:
         task.cancel()
-    for task in (sampler_task, announce_task, heartbeat_task):
+    for task in background_tasks:
         try:
             await task
         except asyncio.CancelledError:

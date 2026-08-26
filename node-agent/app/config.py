@@ -34,5 +34,14 @@ class Settings(BaseSettings):
     # How often the outbound heartbeat loop pings each known neighbor.
     HEARTBEAT_INTERVAL_SECONDS: int = 10
 
+    # Scheduler (component 5): the one container this node's scheduler
+    # watches and migrates under sustained overload. Empty = scheduler is a
+    # no-op (nothing configured to manage).
+    MANAGED_CONTAINER_NAME: str = ""
+    CPU_OVERLOAD_THRESHOLD: float = 80.0
+    MEM_OVERLOAD_THRESHOLD: float = 80.0
+    SUSTAINED_POLLS: int = 3
+    SCHEDULER_INTERVAL_SECONDS: int = 5
+
 
 settings = Settings()

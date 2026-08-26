@@ -2,6 +2,7 @@ import io
 
 from docker.errors import NotFound
 
+from app import migration
 from app.routes import migrate as migrate_route
 
 
@@ -43,7 +44,7 @@ def test_migrate_out_success(client, monkeypatch):
     async def fake_post_multipart(url, files, data):
         return {"status": "running", "container_name": "my-app", "node_id": "regA-c1-edge2"}
 
-    monkeypatch.setattr(migrate_route, "post_multipart", fake_post_multipart)
+    monkeypatch.setattr(migration, "post_multipart", fake_post_multipart)
 
     resp = client.post(
         "/migrate-out", json={"container_name": "my-app", "destination_node": "regA-c1-edge2"}
@@ -65,7 +66,7 @@ def test_migrate_out_unreachable_destination_rolls_back(client, monkeypatch):
     async def fake_post_multipart(url, files, data):
         return None
 
-    monkeypatch.setattr(migrate_route, "post_multipart", fake_post_multipart)
+    monkeypatch.setattr(migration, "post_multipart", fake_post_multipart)
 
     ran = {}
 
