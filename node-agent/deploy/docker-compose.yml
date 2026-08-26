@@ -1,0 +1,14 @@
+# Per-VM deployment. Each host clones the repo, edits ../.env and
+# ../neighbors.yaml for its own identity, then runs from this directory:
+#   docker compose up -d --build
+#
+# SELF_URL should be this host's Tailscale IP (`tailscale ip -4`), not its
+# public AWS IP — inter-node traffic goes over the tailnet.
+services:
+  node-agent:
+    build: ..
+    env_file: ../.env
+    volumes:
+      - ../neighbors.yaml:/app/neighbors.yaml:ro
+    network_mode: host
+    restart: unless-stopped

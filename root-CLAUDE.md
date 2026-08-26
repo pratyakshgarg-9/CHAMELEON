@@ -25,9 +25,13 @@ services I only integrate with over HTTP — not code I own.
 ```
 
 ## Deployment target
-3-4 VMs (Oracle Cloud Free Tier), meshed via Tailscale. Each node runs the
-node-agent as a Docker container. Not a single-machine simulation — real network
-latency matters and should be measured, not mocked, wherever possible.
+3-4 VMs (AWS EC2), meshed via Tailscale. Each node runs the node-agent as a
+Docker container. Not a single-machine simulation — real network latency
+matters and should be measured, not mocked, wherever possible.
+
+Note: AWS's free tier is 12 months and one t2.micro/t3.micro instance, not
+an always-free multi-instance tier — budget/instance-count accordingly for
+3-4 VMs (2026-08-27 decision, revised from an earlier Oracle Cloud plan).
 
 ## Shared contract — do not change without updating `/shared` and telling the team
 
