@@ -31,5 +31,8 @@ class Settings(BaseSettings):
     # Tailscale-reachable URL.
     SELF_URL: str = "http://localhost:8000"
 
+    # How often the outbound heartbeat loop pings each known neighbor.
+    HEARTBEAT_INTERVAL_SECONDS: int = 10
+
 
 settings = Settings()

@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from app.clients import post_json
 from app.config import settings
+from app.heartbeat_loop import run_heartbeat_loop
 from app.neighbors import PeerRegistry, load_neighbors
 from app.routes import health, heartbeat, neighbors_route, register, stats_route
 from app.stats import run_cpu_sampler
@@ -43,12 +44,13 @@ async def lifespan(app: FastAPI):
 
     sampler_task = asyncio.create_task(run_cpu_sampler())
     announce_task = asyncio.create_task(_announce_to_neighbors(registry))
+    heartbeat_task = asyncio.create_task(run_heartbeat_loop(registry))
 
     yield
 
-    sampler_task.cancel()
-    announce_task.cancel()
-    for task in (sampler_task, announce_task):
+    for task in (sampler_task, announce_task, heartbeat_task):
+        task.cancel()
+    for task in (sampler_task, announce_task, heartbeat_task):
         try:
             await task
         except asyncio.CancelledError:

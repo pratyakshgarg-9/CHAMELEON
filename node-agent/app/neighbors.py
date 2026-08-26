@@ -35,6 +35,7 @@ class PeerState:
     cluster: Optional[str] = None
     registered: bool = False
     last_seen: Optional[datetime] = None
+    latency_ms: Optional[float] = None
 
 
 class PeerRegistry:
@@ -79,6 +80,13 @@ class PeerRegistry:
         with self._lock:
             peer = self._peers.get(node_id)
             if peer is not None:
+                peer.last_seen = datetime.now(timezone.utc)
+
+    def update_latency(self, node_id: str, latency_ms: float) -> None:
+        with self._lock:
+            peer = self._peers.get(node_id)
+            if peer is not None:
+                peer.latency_ms = latency_ms
                 peer.last_seen = datetime.now(timezone.utc)
 
     def list_all(self) -> list[PeerState]:

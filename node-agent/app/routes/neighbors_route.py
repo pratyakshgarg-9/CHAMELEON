@@ -18,6 +18,7 @@ async def get_neighbors(registry: PeerRegistry = Depends(get_registry)):
                 "cluster": p.cluster,
                 "registered": p.registered,
                 "last_seen": p.last_seen.strftime("%Y-%m-%dT%H:%M:%SZ") if p.last_seen else None,
+                "latency_ms": p.latency_ms,
             }
             for p in peers
         ]

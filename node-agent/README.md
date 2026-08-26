@@ -1,11 +1,16 @@
 # node-agent
 
 CHAMELEON's node agent (Member 1's service) — see `node-agent-CLAUDE.md` for
-scope/build order and `/shared` for the cross-service contract. This is
-step 1 of that build order: the FastAPI skeleton (`/register`, `/heartbeat`,
-`/stats`, `/neighbors`, `/health`) plus local stubs for the AI Advisor and
-Trust Service so later components can be built against a real contract shape
-before Members 2/3 have real services running.
+scope/build order and `/shared` for the cross-service contract. Built so far:
+
+- **Component 1** — the FastAPI skeleton (`/register`, `/heartbeat`,
+  `/stats`, `/neighbors`, `/health`) plus local stubs for the AI Advisor and
+  Trust Service so later components can be built against a real contract
+  shape before Members 2/3 have real services running.
+- **Component 3** — the outbound background heartbeat loop
+  (`app/heartbeat_loop.py`): periodically pings every known neighbor's
+  `/heartbeat` and records round-trip latency, which now flows into both
+  `GET /stats`'s `latency_ms` and `GET /neighbors`.
 
 ## Local setup
 
@@ -55,7 +60,9 @@ uvicorn main:app --port 8001
 
 Add the other node to each `neighbors.yaml` (see the commented example in
 that file) and restart both — each announces itself to the other on startup
-and shows up in `GET /neighbors`.
+and shows up in `GET /neighbors`. After one `HEARTBEAT_INTERVAL_SECONDS`
+(default 10s), `GET /stats` and `GET /neighbors` on either node will show a
+real measured `latency_ms` to the other.
 
 ## Tests
 
@@ -70,12 +77,10 @@ unnoticed.
 
 ## Known gaps (intentional, deferred to later steps)
 
-- `latency_ms` in `/stats` is always `{}` — populated once the outbound
-  heartbeat *loop* (component 3) exists.
 - mTLS isn't applied to outbound calls yet (`app/clients.py` has a `TODO`) —
   blocked on Member 3 issuing real per-node certs, per root-CLAUDE.md's
   status board.
-- Container migration, the scheduler, and leader election (components 4-6)
-  aren't built yet.
+- Container migration, the scheduler, and leader election (components 4, 5,
+  6) aren't built yet.
 - Migration will need Docker installed locally to exercise — not required
   for anything in this step.

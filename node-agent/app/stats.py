@@ -46,9 +46,12 @@ async def _fetch_trust_score() -> float:
 async def build_stats_payload(registry: PeerRegistry) -> StatsPayload:
     trust_score = await _fetch_trust_score()
 
-    # latency_ms stays empty until the outbound heartbeat loop (component 3,
-    # a later step) actually measures round-trip time to each neighbor.
-    latency_ms: dict[str, float] = {}
+    # Populated by the outbound heartbeat loop (app/heartbeat_loop.py) as it
+    # measures round-trip time to each neighbor. A peer that hasn't answered
+    # yet (or ever) is simply omitted rather than reported as 0.
+    latency_ms = {
+        p.node_id: p.latency_ms for p in registry.list_all() if p.latency_ms is not None
+    }
 
     return StatsPayload(
         node_id=settings.NODE_ID,
