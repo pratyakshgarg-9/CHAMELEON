@@ -1,0 +1,13 @@
+# Static neighbor list for this node (component 2 — no dynamic gossip
+# needed at this scale, per node-agent-CLAUDE.md). Each entry is a
+# neighbor node-agent this node knows about and will peer-announce to on
+# startup (POST /register — see main.py's lifespan).
+#
+# Example for a 2-node local dev setup (second node run with
+# NODE_ID=regA-c1-edge2, PORT=8001, SELF_URL=http://localhost:8001):
+#
+# neighbors:
+#   - node_id: regA-c1-edge2
+#     url: http://localhost:8001
+
+neighbors: []
