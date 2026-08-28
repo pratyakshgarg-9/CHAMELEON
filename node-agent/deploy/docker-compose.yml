@@ -10,5 +10,12 @@ services:
     env_file: ../.env
     volumes:
       - ../neighbors.yaml:/app/neighbors.yaml:ro
+      # Container migration (docker.from_env() in app/docker_client.py)
+      # manages containers on the HOST's Docker daemon, not a nested one —
+      # this mount is what makes that possible. Never surfaced in local
+      # dev, since node-agent there always ran as a plain process with
+      # direct access to Docker Desktop's socket, not inside its own
+      # container.
+      - /var/run/docker.sock:/var/run/docker.sock
     network_mode: host
     restart: unless-stopped
