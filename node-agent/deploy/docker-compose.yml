@@ -4,6 +4,12 @@
 #
 # SELF_URL should be this host's Tailscale IP (`tailscale ip -4`), not its
 # public AWS IP — inter-node traffic goes over the tailnet.
+#
+# The advisor/trust stubs (profile "edge1") only need to run on the one
+# node acting as the stub host — bring them up there with:
+#   docker compose --profile edge1 up -d --build
+# A plain `docker compose up -d --build` (no profile) on any node starts
+# only node-agent, which is what edge2/edge3 want.
 services:
   node-agent:
     build: ..
@@ -19,3 +25,22 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     network_mode: host
     restart: unless-stopped
+
+  # Local stand-ins for Member 2/3's services (root-CLAUDE.md status board).
+  # Same image as node-agent, just a different uvicorn target — replaces the
+  # old setsid-backgrounded native processes on edge1 so a reboot doesn't
+  # need a manual restart. Swapping to the real services later is still just
+  # an ADVISOR_URL/TRUST_URL config change in .env, nothing here changes.
+  advisor-stub:
+    build: ..
+    command: uvicorn stubs.advisor_stub:app --host 0.0.0.0 --port 8100
+    network_mode: host
+    restart: unless-stopped
+    profiles: ["edge1"]
+
+  trust-stub:
+    build: ..
+    command: uvicorn stubs.trust_stub:app --host 0.0.0.0 --port 8200
+    network_mode: host
+    restart: unless-stopped
+    profiles: ["edge1"]
