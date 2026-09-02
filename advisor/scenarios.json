@@ -1,0 +1,449 @@
+[
+  {
+    "name": "clear_winner",
+    "description": "edge2 is lightly loaded and fast; edge3 is overloaded and slow.",
+    "candidates": [
+      {
+        "node_id": "regA-c1-edge2",
+        "cpu_usage_percent": 20,
+        "memory_usage_percent": 30,
+        "latency_ms": 15,
+        "trust_score": 0.95,
+        "historical_load_5min": 25,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      },
+      {
+        "node_id": "regA-c1-edge3",
+        "cpu_usage_percent": 88,
+        "memory_usage_percent": 80,
+        "latency_ms": 210,
+        "trust_score": 0.6,
+        "historical_load_5min": 85,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      }
+    ],
+    "expected": "regA-c1-edge2",
+    "max_staleness_seconds": 30
+  },
+  {
+    "name": "low_cpu_poor_trust",
+    "description": "edge4 has great CPU headroom but near-zero trust; edge5 is decent everywhere with full trust.",
+    "candidates": [
+      {
+        "node_id": "edge4",
+        "cpu_usage_percent": 15,
+        "memory_usage_percent": 20,
+        "latency_ms": 45,
+        "trust_score": 0.05,
+        "historical_load_5min": 25,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      },
+      {
+        "node_id": "edge5",
+        "cpu_usage_percent": 40,
+        "memory_usage_percent": 35,
+        "latency_ms": 50,
+        "trust_score": 1.0,
+        "historical_load_5min": 35,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      }
+    ],
+    "expected": "edge5",
+    "max_staleness_seconds": 30
+  },
+  {
+    "name": "high_trust_high_latency",
+    "description": "edge6 is fully trusted but far away (latency); edge7 is closer and still trustworthy.",
+    "candidates": [
+      {
+        "node_id": "edge6",
+        "cpu_usage_percent": 35,
+        "memory_usage_percent": 35,
+        "latency_ms": 480,
+        "trust_score": 1.0,
+        "historical_load_5min": 30,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      },
+      {
+        "node_id": "edge7",
+        "cpu_usage_percent": 40,
+        "memory_usage_percent": 38,
+        "latency_ms": 60,
+        "trust_score": 0.8,
+        "historical_load_5min": 35,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      }
+    ],
+    "expected": "edge7",
+    "max_staleness_seconds": 30
+  },
+  {
+    "name": "stale_candidate_excluded",
+    "description": "edge8 looks perfect but its stats are 5 minutes old; edge9 is decent and fresh.",
+    "candidates": [
+      {
+        "node_id": "edge8",
+        "cpu_usage_percent": 5,
+        "memory_usage_percent": 5,
+        "latency_ms": 5,
+        "trust_score": 1.0,
+        "historical_load_5min": 5,
+        "last_updated": 1788380994.6684523,
+        "available": true
+      },
+      {
+        "node_id": "edge9",
+        "cpu_usage_percent": 50,
+        "memory_usage_percent": 50,
+        "latency_ms": 80,
+        "trust_score": 0.7,
+        "historical_load_5min": 50,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      }
+    ],
+    "expected": "edge9",
+    "max_staleness_seconds": 30
+  },
+  {
+    "name": "tied_candidates",
+    "description": "edge10 and edge11 have identical stats; tie should resolve alphabetically.",
+    "candidates": [
+      {
+        "node_id": "edge11",
+        "cpu_usage_percent": 30,
+        "memory_usage_percent": 30,
+        "latency_ms": 30,
+        "trust_score": 0.8,
+        "historical_load_5min": 30,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      },
+      {
+        "node_id": "edge10",
+        "cpu_usage_percent": 30,
+        "memory_usage_percent": 30,
+        "latency_ms": 30,
+        "trust_score": 0.8,
+        "historical_load_5min": 30,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      }
+    ],
+    "expected": "edge10",
+    "max_staleness_seconds": 30
+  },
+  {
+    "name": "all_stale_no_winner",
+    "description": "Every candidate's stats are too old to trust.",
+    "candidates": [
+      {
+        "node_id": "edge12",
+        "cpu_usage_percent": 20,
+        "memory_usage_percent": 20,
+        "latency_ms": 20,
+        "trust_score": 0.9,
+        "historical_load_5min": 20,
+        "last_updated": 1788381174.6684523,
+        "available": true
+      },
+      {
+        "node_id": "edge13",
+        "cpu_usage_percent": 25,
+        "memory_usage_percent": 25,
+        "latency_ms": 25,
+        "trust_score": 0.85,
+        "historical_load_5min": 25,
+        "last_updated": 1788381204.6684523,
+        "available": true
+      }
+    ],
+    "expected": null,
+    "max_staleness_seconds": 30
+  },
+  {
+    "name": "all_unavailable_no_winner",
+    "description": "Both candidates are marked unavailable (e.g. draining, cordoned).",
+    "candidates": [
+      {
+        "node_id": "edge14",
+        "cpu_usage_percent": 10,
+        "memory_usage_percent": 10,
+        "latency_ms": 10,
+        "trust_score": 0.9,
+        "historical_load_5min": 10,
+        "last_updated": 1788381293.6684523,
+        "available": false
+      },
+      {
+        "node_id": "edge15",
+        "cpu_usage_percent": 15,
+        "memory_usage_percent": 15,
+        "latency_ms": 15,
+        "trust_score": 0.9,
+        "historical_load_5min": 15,
+        "last_updated": 1788381293.6684523,
+        "available": false
+      }
+    ],
+    "expected": null,
+    "max_staleness_seconds": 30
+  },
+  {
+    "name": "mixed_disqualifications",
+    "description": "One stale, one unavailable, one healthy valid candidate.",
+    "candidates": [
+      {
+        "node_id": "edge16",
+        "cpu_usage_percent": 15,
+        "memory_usage_percent": 15,
+        "latency_ms": 15,
+        "trust_score": 0.95,
+        "historical_load_5min": 15,
+        "last_updated": 1788381094.6684523,
+        "available": true
+      },
+      {
+        "node_id": "edge17",
+        "cpu_usage_percent": 20,
+        "memory_usage_percent": 20,
+        "latency_ms": 20,
+        "trust_score": 0.9,
+        "historical_load_5min": 20,
+        "last_updated": 1788381293.6684523,
+        "available": false
+      },
+      {
+        "node_id": "edge18",
+        "cpu_usage_percent": 55,
+        "memory_usage_percent": 55,
+        "latency_ms": 90,
+        "trust_score": 0.7,
+        "historical_load_5min": 55,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      }
+    ],
+    "expected": "edge18",
+    "max_staleness_seconds": 30
+  },
+  {
+    "name": "memory_vs_cpu_pressure",
+    "description": "edge19 is memory-starved; edge20 is CPU-heavy but has memory to spare.",
+    "candidates": [
+      {
+        "node_id": "edge19",
+        "cpu_usage_percent": 30,
+        "memory_usage_percent": 95,
+        "latency_ms": 40,
+        "trust_score": 0.8,
+        "historical_load_5min": 40,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      },
+      {
+        "node_id": "edge20",
+        "cpu_usage_percent": 60,
+        "memory_usage_percent": 30,
+        "latency_ms": 40,
+        "trust_score": 0.8,
+        "historical_load_5min": 40,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      }
+    ],
+    "expected": "edge20",
+    "max_staleness_seconds": 30
+  },
+  {
+    "name": "thrashy_history_penalized",
+    "description": "edge21 looks okay right now but has been thrashing hard for 5 minutes; edge22 is steady.",
+    "candidates": [
+      {
+        "node_id": "edge21",
+        "cpu_usage_percent": 20,
+        "memory_usage_percent": 20,
+        "latency_ms": 20,
+        "trust_score": 0.85,
+        "historical_load_5min": 98,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      },
+      {
+        "node_id": "edge22",
+        "cpu_usage_percent": 35,
+        "memory_usage_percent": 35,
+        "latency_ms": 20,
+        "trust_score": 0.85,
+        "historical_load_5min": 25,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      }
+    ],
+    "expected": "edge22",
+    "max_staleness_seconds": 30
+  },
+  {
+    "name": "three_way_race",
+    "description": "Three plausible candidates; edge25 is best across the board.",
+    "candidates": [
+      {
+        "node_id": "edge23",
+        "cpu_usage_percent": 50,
+        "memory_usage_percent": 50,
+        "latency_ms": 100,
+        "trust_score": 0.6,
+        "historical_load_5min": 50,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      },
+      {
+        "node_id": "edge24",
+        "cpu_usage_percent": 40,
+        "memory_usage_percent": 60,
+        "latency_ms": 150,
+        "trust_score": 0.75,
+        "historical_load_5min": 45,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      },
+      {
+        "node_id": "edge25",
+        "cpu_usage_percent": 25,
+        "memory_usage_percent": 25,
+        "latency_ms": 30,
+        "trust_score": 0.92,
+        "historical_load_5min": 20,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      }
+    ],
+    "expected": "edge25",
+    "max_staleness_seconds": 30
+  },
+  {
+    "name": "least_bad_option",
+    "description": "Every candidate is under pressure; advisor should still pick the relatively best one.",
+    "candidates": [
+      {
+        "node_id": "edge26",
+        "cpu_usage_percent": 92,
+        "memory_usage_percent": 88,
+        "latency_ms": 300,
+        "trust_score": 0.5,
+        "historical_load_5min": 90,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      },
+      {
+        "node_id": "edge27",
+        "cpu_usage_percent": 85,
+        "memory_usage_percent": 90,
+        "latency_ms": 350,
+        "trust_score": 0.55,
+        "historical_load_5min": 95,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      },
+      {
+        "node_id": "edge28",
+        "cpu_usage_percent": 80,
+        "memory_usage_percent": 82,
+        "latency_ms": 280,
+        "trust_score": 0.6,
+        "historical_load_5min": 88,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      }
+    ],
+    "expected": "edge28",
+    "max_staleness_seconds": 30
+  },
+  {
+    "name": "zero_trust_avoided",
+    "description": "edge29 has decent resources but zero trust; edge30 is similar but highly trusted.",
+    "candidates": [
+      {
+        "node_id": "edge29",
+        "cpu_usage_percent": 45,
+        "memory_usage_percent": 45,
+        "latency_ms": 45,
+        "trust_score": 0.0,
+        "historical_load_5min": 45,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      },
+      {
+        "node_id": "edge30",
+        "cpu_usage_percent": 55,
+        "memory_usage_percent": 55,
+        "latency_ms": 60,
+        "trust_score": 0.95,
+        "historical_load_5min": 50,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      }
+    ],
+    "expected": "edge30",
+    "max_staleness_seconds": 30
+  },
+  {
+    "name": "single_candidate",
+    "description": "Only one candidate is offered; it should win by default (if valid).",
+    "candidates": [
+      {
+        "node_id": "edge31",
+        "cpu_usage_percent": 70,
+        "memory_usage_percent": 70,
+        "latency_ms": 200,
+        "trust_score": 0.5,
+        "historical_load_5min": 70,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      }
+    ],
+    "expected": "edge31",
+    "max_staleness_seconds": 30
+  },
+  {
+    "name": "empty_candidate_list",
+    "description": "No candidates sent at all.",
+    "candidates": [],
+    "expected": null,
+    "max_staleness_seconds": 30
+  },
+  {
+    "name": "boundary_staleness",
+    "description": "edge32 is just past the staleness threshold; edge33 is comfortably fresh.",
+    "candidates": [
+      {
+        "node_id": "edge32",
+        "cpu_usage_percent": 20,
+        "memory_usage_percent": 20,
+        "latency_ms": 20,
+        "trust_score": 0.9,
+        "historical_load_5min": 20,
+        "last_updated": 1788381263.6684523,
+        "available": true
+      },
+      {
+        "node_id": "edge33",
+        "cpu_usage_percent": 45,
+        "memory_usage_percent": 45,
+        "latency_ms": 45,
+        "trust_score": 0.75,
+        "historical_load_5min": 45,
+        "last_updated": 1788381293.6684523,
+        "available": true
+      }
+    ],
+    "expected": "edge33",
+    "max_staleness_seconds": 30
+  }
+]
