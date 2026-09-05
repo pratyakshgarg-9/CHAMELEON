@@ -8,3 +8,22 @@ __pycache__/
 
 # Trust Service local database
 trust-service/trust.db
+
+# Internal CA private key
+shared/certs/ca/ca.key
+
+# Node private keys
+shared/certs/nodes/*.key
+# Local Node Agent certificates
+node-agent/certs/*.key
+node-agent/certs/*.crt
+shared/certs/ca/*.srl
+shared/certs/ca/ca.key
+shared/certs/ca/*.srl
+shared/certs/ca/ca.key
+
+# Generated CA and node certificates
+shared/certs/ca/*.crt
+shared/certs/nodes/*.crt
+shared/certs/nodes/*.csr
+shared/certs/ca.crt

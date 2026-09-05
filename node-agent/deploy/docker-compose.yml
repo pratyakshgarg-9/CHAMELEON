@@ -16,6 +16,8 @@ services:
     env_file: ../.env
     volumes:
       - ../neighbors.yaml:/app/neighbors.yaml:ro
+      - ../certs:/app/certs:ro
+      - ../../shared/certs/ca.crt:/app/certs/ca.crt:ro
       # Container migration (docker.from_env() in app/docker_client.py)
       # manages containers on the HOST's Docker daemon, not a nested one —
       # this mount is what makes that possible. Never surfaced in local
@@ -24,6 +26,14 @@ services:
       # container.
       - /var/run/docker.sock:/var/run/docker.sock
     network_mode: host
+    command: >
+      uvicorn main:app
+      --host 0.0.0.0
+      --port 8000
+      --ssl-keyfile /app/certs/node.key
+      --ssl-certfile /app/certs/node.crt
+      --ssl-ca-certs /app/certs/ca.crt
+      --ssl-cert-reqs 2
     restart: unless-stopped
 
   # Local stand-ins for Member 2/3's services (root-CLAUDE.md status board).
