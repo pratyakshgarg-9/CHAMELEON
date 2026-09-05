@@ -27,3 +27,13 @@ shared/certs/ca/*.crt
 shared/certs/nodes/*.crt
 shared/certs/nodes/*.csr
 shared/certs/ca.crt
+
+# Trust Service local certificates
+trust-service/*.key
+trust-service/*.csr
+trust-service/*.crt
+
+# Global Coordinator local certificates
+coordinator/certs/*.key
+coordinator/certs/*.csr
+coordinator/certs/*.crt
