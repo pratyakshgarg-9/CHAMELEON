@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import ssl
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -52,3 +53,23 @@ app.include_router(register.router)
 app.include_router(heartbeat.router)
 app.include_router(migrate.router)
 app.include_router(election.router)
+
+
+if __name__ == "__main__":
+    # Entrypoint (also what the Dockerfile CMD runs) instead of the bare
+    # `uvicorn main:app` CLI, so mTLS settings come from .env like everything
+    # else — no separate flags to keep in sync across local/dev/deploy.
+    # tests/conftest.py's TestClient(app) never goes through this path.
+    import uvicorn
+
+    run_kwargs = {"host": settings.HOST, "port": settings.PORT}
+
+    if settings.MTLS_ENABLED:
+        run_kwargs.update(
+            ssl_certfile=settings.CLIENT_CERT_PATH,
+            ssl_keyfile=settings.CLIENT_KEY_PATH,
+            ssl_ca_certs=settings.CA_CERT_PATH,
+            ssl_cert_reqs=ssl.CERT_REQUIRED,
+        )
+
+    uvicorn.run(app, **run_kwargs)

@@ -23,6 +23,11 @@ services:
       # direct access to Docker Desktop's socket, not inside its own
       # container.
       - /var/run/docker.sock:/var/run/docker.sock
+      # Only matters when MTLS_ENABLED=true (see .env.example) — harmless
+      # otherwise. Populate ../certs on the host with
+      # scripts/generate_dev_certs.py for now; swap in Member 3's real
+      # per-node certs here later, same mount.
+      - ../certs:/app/certs:ro
     network_mode: host
     restart: unless-stopped
 

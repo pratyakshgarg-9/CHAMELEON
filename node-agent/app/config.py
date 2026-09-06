@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     CLIENT_CERT_PATH: str = "./certs/node.crt"
     CLIENT_KEY_PATH: str = "./certs/node.key"
 
+    # Off by default so local dev, the advisor/trust stubs, and pytest keep
+    # working over plain HTTP. Flip on once CA_CERT_PATH/CLIENT_CERT_PATH/
+    # CLIENT_KEY_PATH point at real files (dev certs from
+    # scripts/generate_dev_certs.py, or Member 3's real per-node certs later
+    # — same flag either way, see /shared/certs/README_2.md).
+    MTLS_ENABLED: bool = False
+
     NEIGHBORS_FILE: str = "neighbors.yaml"
     HOST: str = "0.0.0.0"
     PORT: int = 8000

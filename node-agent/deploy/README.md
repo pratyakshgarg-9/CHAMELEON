@@ -134,9 +134,14 @@ Two real bugs found and fixed during this deployment (both now in
   allow direct connections if that matters later.
 - Port 8000 (node-agent) is intentionally **not** opened in the AWS
   security group — all inter-node traffic goes over the tailnet.
-- mTLS (per `/shared/certs/README_2.md`) is still not wired in — traffic
-  between nodes is plain HTTP, riding on Tailscale's own WireGuard
-  encryption. Real mTLS remains blocked on Member 3 issuing certs.
+- mTLS (per `/shared/certs/README_2.md`) is still not live on these
+  instances — traffic between nodes is plain HTTP, riding on Tailscale's own
+  WireGuard encryption. The mechanism itself is now built and tested
+  (`MTLS_ENABLED` in `.env`, see `node-agent/README.md`), but turning it on
+  here still needs Member 3's real per-node certs — she hasn't issued any
+  yet. `docker-compose.yml`'s `../certs` mount is ready for them, or for
+  `scripts/generate_dev_certs.py` output if you want to test the mechanism
+  against these real VMs before then.
 
 ## Cost note
 

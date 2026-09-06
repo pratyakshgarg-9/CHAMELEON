@@ -9,4 +9,6 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# python main.py (not `uvicorn main:app ...`) so mTLS settings come from
+# .env instead of duplicated CLI flags — see main.py's __main__ block.
+CMD ["python", "main.py"]
