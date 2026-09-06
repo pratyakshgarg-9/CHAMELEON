@@ -15,8 +15,11 @@ scope/build order and `/shared` for the cross-service contract. Built so far:
   `app/migration.py`, `app/routes/migrate.py`): `POST /migrate-out`
   stops+commits+removes a local container, ships the image straight to the
   destination's `POST /migrate-in` over HTTP (multipart), which loads it and
-  runs an equivalent container. Needs a local Docker daemon — see "Trying
-  migration locally" below.
+  runs an equivalent container. Stateful: if the container has a named
+  Docker volume, its data rides along as a second part of the same
+  multipart request and is restored before the destination container
+  starts — see "Stateful migration" in `node-agent-CLAUDE.md`. Needs a
+  local Docker daemon — see "Trying migration locally" below.
 - **Component 5** — the scheduler (`app/scheduler.py`): a background loop
   watches `cpu_percent`/`mem_percent`; once either stays over its threshold
   for `SUSTAINED_POLLS` consecutive polls, it fetches every neighbor's live
@@ -102,13 +105,20 @@ mechanics for real, just not literally-separate-daemon behavior — good
 enough for local dev, not a substitute for a real multi-VM check later.
 
 ```bash
-docker run -d --name migration-demo busybox sleep 600
+docker volume create migration-demo-data
+docker run -d --name migration-demo -v migration-demo-data:/data busybox sleep 600
+docker exec migration-demo sh -c "echo 'hello from before the move' > /data/testfile.txt"
 
 curl -X POST http://localhost:8000/migrate-out -H "Content-Type: application/json" \
   -d "{\"container_name\":\"migration-demo\",\"destination_node\":\"regA-c1-edge2\"}"
 
 docker ps -a --filter name=migration-demo   # same name, new container ID
+docker exec migration-demo cat /data/testfile.txt   # same content — the volume moved too
 ```
+
+The volume mount (`-v migration-demo-data:/data`) is what makes this a
+stateful migration — see "Stateful migration" in `node-agent-CLAUDE.md`
+for exactly how the data gets from one node to the other.
 
 To see the scheduler trigger this automatically instead of curling it by
 hand, start a node with `MANAGED_CONTAINER_NAME=migration-demo` and an
@@ -208,9 +218,11 @@ mocked, so the rest of the suite doesn't need Docker at all.
   CN-to-node_id verification — a smaller guarantee than CONTRACT.md's full
   "CN must equal the sender's `node_id`" wording, flagged there as a
   deliberate, time-boxed scope call, not dropped.
-- Migration doesn't handle volumes/mounts — only port bindings and restart
-  policy are captured and reapplied. Migrating stateful volume data is a
-  bigger problem than this build addresses.
+- Migration now handles one named volume's data (see "Stateful migration"
+  in `node-agent-CLAUDE.md`) — a container with more than one volume only
+  has its first migrated. No handling for concurrent writes during the
+  migration window, or for very large volumes (the whole thing is buffered
+  in memory on both ends, same as the existing image transfer already does).
 - The scheduler always targets a single fixed `MANAGED_CONTAINER_NAME` —
   there's no policy for picking among several containers on a node.
 - Coordinator escalation (see above) is wired, but the coordinator itself is

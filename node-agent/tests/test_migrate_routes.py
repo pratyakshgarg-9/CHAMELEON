@@ -86,6 +86,84 @@ def test_migrate_out_unreachable_destination_rolls_back(client, monkeypatch):
     assert ran["called"] is True
 
 
+def test_migrate_out_with_volume_sends_data_part(client, monkeypatch):
+    _register_destination(client)
+
+    monkeypatch.setattr(
+        migrate_route.docker_client,
+        "get_run_config",
+        lambda name: {"ports": {}, "restart_policy": {"Name": "no"}, "volumes": {"my-vol": {"bind": "/data", "mode": "rw"}}},
+    )
+    monkeypatch.setattr(migrate_route.docker_client, "stop_commit_remove", lambda name: "chameleon-migrate/my-app:abc123")
+    monkeypatch.setattr(migrate_route.docker_client, "save_image", lambda tag: b"fake-tar-bytes")
+    monkeypatch.setattr(migration.docker_client, "export_volume_data", lambda vol: b"fake-volume-tar-bytes")
+    monkeypatch.setattr(migrate_route.docker_client, "remove_image", lambda tag: None)
+
+    seen = {}
+
+    async def fake_post_multipart(url, files, data):
+        seen["files"] = files
+        return {"status": "running", "container_name": "my-app", "node_id": "regA-c1-edge2"}
+
+    monkeypatch.setattr(migration, "post_multipart", fake_post_multipart)
+
+    resp = client.post("/migrate-out", json={"container_name": "my-app", "destination_node": "regA-c1-edge2"})
+    assert resp.status_code == 200
+    assert "data" in seen["files"]
+    assert seen["files"]["data"][1] == b"fake-volume-tar-bytes"
+    assert "file" in seen["files"]  # image transfer still happens, unchanged
+
+
+def test_migrate_out_without_volume_sends_no_data_part(client, monkeypatch):
+    _register_destination(client)
+
+    monkeypatch.setattr(
+        migrate_route.docker_client,
+        "get_run_config",
+        lambda name: {"ports": {}, "restart_policy": {"Name": "no"}, "volumes": {}},
+    )
+    monkeypatch.setattr(migrate_route.docker_client, "stop_commit_remove", lambda name: "chameleon-migrate/my-app:abc123")
+    monkeypatch.setattr(migrate_route.docker_client, "save_image", lambda tag: b"fake-tar-bytes")
+    monkeypatch.setattr(migrate_route.docker_client, "remove_image", lambda tag: None)
+
+    seen = {}
+
+    async def fake_post_multipart(url, files, data):
+        seen["files"] = files
+        return {"status": "running", "container_name": "my-app", "node_id": "regA-c1-edge2"}
+
+    monkeypatch.setattr(migration, "post_multipart", fake_post_multipart)
+
+    resp = client.post("/migrate-out", json={"container_name": "my-app", "destination_node": "regA-c1-edge2"})
+    assert resp.status_code == 200
+    assert "data" not in seen["files"]
+
+
+def test_migrate_in_with_volume_restores_before_run(client, monkeypatch):
+    class FakeImage:
+        id = "sha256:fake"
+
+    calls = []
+
+    monkeypatch.setattr(migrate_route.docker_client, "load_image", lambda tar_bytes: FakeImage())
+    monkeypatch.setattr(migrate_route.docker_client, "import_volume_data", lambda vol, tar: calls.append(("import", vol)))
+    monkeypatch.setattr(migrate_route.docker_client, "run_container", lambda image, name, run_config: calls.append(("run",)) or object())
+    monkeypatch.setattr(migrate_route.docker_client, "wait_until_running", lambda container, **kw: True)
+
+    resp = client.post(
+        "/migrate-in",
+        files={
+            "file": ("my-app.tar", io.BytesIO(b"fake-tar-bytes"), "application/x-tar"),
+            "data": ("my-vol.tar", io.BytesIO(b"fake-volume-tar-bytes"), "application/x-tar"),
+        },
+        data={
+            "metadata": '{"container_name": "my-app", "run_config": {"ports": {}, "restart_policy": {"Name": "no"}, "volumes": {"my-vol": {"bind": "/data", "mode": "rw"}}}}'
+        },
+    )
+    assert resp.status_code == 200
+    assert calls == [("import", "my-vol"), ("run",)]  # restored before the container starts
+
+
 def test_migrate_in_success(client, monkeypatch):
     class FakeImage:
         id = "sha256:fake"

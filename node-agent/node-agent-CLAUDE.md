@@ -59,6 +59,33 @@ not a rewrite.
 - Don't hardcode cert paths — Member 3 may rotate the CA; read from `CA_CERT_PATH`
   in `.env` so a rotation doesn't need a code change.
 
+## Stateful migration (single named volume)
+
+`docker commit` (what `stop_commit_remove` uses) captures image/filesystem
+state but never a mounted volume's contents — closing that gap was scoped
+to exactly one volume per managed container, on purpose:
+
+- `get_run_config` now also reads the container's `Mounts` and returns a
+  `volumes` map (`{volume_name: {"bind": path, "mode": rw|ro}}`) alongside
+  the existing `ports`/`restart_policy`. A container with more than one
+  named volume only has the first migrated (logged as a warning) — not
+  handled, by design, for this pass.
+- `docker_client.export_volume_data`/`import_volume_data` move the actual
+  bytes via `container.get_archive`/`put_archive` — the same primitives
+  `docker cp` itself uses, through a short-lived, unstarted helper
+  container with the volume mounted. No `exec`, no shelling out to `tar`.
+- The volume's tarball rides as a second file part (`data`) on the exact
+  same multipart `POST /migrate-in` the image transfer already uses —
+  deliberately not a new transport, so there's nothing new to secure,
+  firewall, or reason about beyond what the existing transfer already is.
+- On `/migrate-in`, the volume is restored *before* `run_container` starts
+  the new container, so it never races a fresh, empty mount against the
+  restore.
+- Out of scope, explicitly: concurrent writes during the migration window,
+  and volumes too large to buffer in memory on both ends (matches the
+  existing image transfer's own limits — this doesn't make that worse, but
+  doesn't fix it either).
+
 ## Style
 - Type hints on all function signatures.
 - Keep endpoint handlers thin — business logic (scoring thresholds, election logic)

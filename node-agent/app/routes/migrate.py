@@ -1,5 +1,6 @@
 import asyncio
 import json
+from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
@@ -24,13 +25,26 @@ async def migrate_out(body: MigrateOutRequest, registry: PeerRegistry = Depends(
 
 
 @router.post("/migrate-in", response_model=MigrateInResponse)
-async def migrate_in(file: UploadFile = File(...), metadata: str = Form(...)):
+async def migrate_in(
+    file: UploadFile = File(...), metadata: str = Form(...), data: Optional[UploadFile] = File(None)
+):
     meta = json.loads(metadata)
     container_name = meta["container_name"]
     run_config = meta.get("run_config") or {}
 
     tar_bytes = await file.read()
     image = await asyncio.to_thread(docker_client.load_image, tar_bytes)
+
+    # Restore volume data BEFORE starting the container, so it comes up
+    # with its prior state already in place rather than racing a fresh
+    # container against the restore. Same single-volume scope as the
+    # /migrate-out side that produced this.
+    volumes = run_config.get("volumes") or {}
+    if data is not None and volumes:
+        volume_name = next(iter(volumes))
+        volume_tar_bytes = await data.read()
+        await asyncio.to_thread(docker_client.import_volume_data, volume_name, volume_tar_bytes)
+
     container = await asyncio.to_thread(docker_client.run_container, image.id, container_name, run_config)
     healthy = await asyncio.to_thread(docker_client.wait_until_running, container)
 

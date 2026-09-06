@@ -17,10 +17,11 @@ def get_client() -> docker.DockerClient:
 
 def get_run_config(container_name: str) -> dict:
     """Captures the parts of a running container's config that `docker
-    commit` does NOT preserve (port bindings, restart policy), so
-    /migrate-in can recreate an equivalent container. Volumes/mounts are
-    intentionally not captured — migrating stateful volume data is out of
-    scope for this build.
+    commit` does NOT preserve (port bindings, restart policy, named-volume
+    mounts), so /migrate-in can recreate an equivalent container. `commit`
+    bakes in filesystem/image state but never volume contents — that's
+    what export_volume_data/import_volume_data below are for; this only
+    captures WHERE a volume was mounted, not what's in it.
     """
     container = get_client().containers.get(container_name)
     host_config = container.attrs.get("HostConfig", {})
@@ -31,7 +32,13 @@ def get_run_config(container_name: str) -> dict:
             ports[container_port] = bindings[0].get("HostPort")
 
     restart_policy = host_config.get("RestartPolicy") or {"Name": "no"}
-    return {"ports": ports, "restart_policy": restart_policy}
+
+    volumes = {}
+    for mount in container.attrs.get("Mounts", []):
+        if mount.get("Type") == "volume":
+            volumes[mount["Name"]] = {"bind": mount["Destination"], "mode": "rw" if mount.get("RW", True) else "ro"}
+
+    return {"ports": ports, "restart_policy": restart_policy, "volumes": volumes}
 
 
 def stop_commit_remove(container_name: str) -> str:
@@ -87,7 +94,44 @@ def run_container(image, container_name: str, run_config: dict):
         detach=True,
         ports=run_config.get("ports") or None,
         restart_policy=run_config.get("restart_policy") or None,
+        volumes=run_config.get("volumes") or None,
     )
+
+
+def export_volume_data(volume_name: str) -> bytes:
+    """Tars up a named volume's contents via the same get_archive/put_archive
+    primitives `docker cp` itself uses — no exec, no shelling out to `tar`,
+    and no dependency on the volume's own container being alive (the volume
+    outlives stop_commit_remove; that's the point of a named volume). Scoped
+    to a single volume per node-agent-CLAUDE.md's stateful-migration note.
+    """
+    client = get_client()
+    helper = client.containers.create("busybox", command="true", volumes={volume_name: {"bind": "/data", "mode": "ro"}})
+    try:
+        stream, _ = helper.get_archive("/data")
+        return b"".join(stream)
+    finally:
+        helper.remove(force=True)
+
+
+def import_volume_data(volume_name: str, tar_bytes: bytes) -> None:
+    """Restores a volume's contents (as produced by export_volume_data)
+    into a volume on this node, creating it first if it doesn't exist yet —
+    must run before run_container so the recreated container starts with
+    its data already in place, not racing a fresh container against the
+    restore.
+    """
+    client = get_client()
+    try:
+        client.volumes.get(volume_name)
+    except NotFound:
+        client.volumes.create(volume_name)
+
+    helper = client.containers.create("busybox", command="true", volumes={volume_name: {"bind": "/data", "mode": "rw"}})
+    try:
+        helper.put_archive("/data", tar_bytes)
+    finally:
+        helper.remove(force=True)
 
 
 def wait_until_running(container, retries: int = 10, delay: float = 0.5) -> bool:

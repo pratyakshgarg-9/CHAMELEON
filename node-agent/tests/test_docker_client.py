@@ -1,3 +1,4 @@
+import time
 import uuid
 
 import pytest
@@ -49,6 +50,72 @@ def test_migrate_mechanics_end_to_end(busybox_container):
     finally:
         new_container.remove(force=True)
         docker_client.remove_image(image_tag)
+
+
+def test_stateful_migration_preserves_volume_data():
+    """The requirement, made concrete: write a test file into the managed
+    container's volume, run the full export -> stop/commit -> import ->
+    recreate sequence (the real /migrate-out -> /migrate-in mechanics, just
+    called directly instead of over HTTP), and confirm the file survives
+    unchanged on the "destination" side.
+    """
+    client = docker_client.get_client()
+    name = f"chameleon-test-{uuid.uuid4().hex[:8]}"
+    volume_name = f"chameleon-test-vol-{uuid.uuid4().hex[:8]}"
+    marker = f"hello from {uuid.uuid4().hex[:8]}"
+
+    container = client.containers.run(
+        "busybox",
+        f"sh -c \"echo '{marker}' > /data/testfile.txt && sleep 300\"",
+        name=name,
+        detach=True,
+        volumes={volume_name: {"bind": "/data", "mode": "rw"}},
+    )
+    try:
+        # give the shell a moment to actually write the file before we stop it
+        for _ in range(20):
+            container.reload()
+            if container.status == "running":
+                break
+            time.sleep(0.1)
+
+        run_config = docker_client.get_run_config(name)
+        assert run_config["volumes"] == {volume_name: {"bind": "/data", "mode": "rw"}}
+
+        volume_tar = docker_client.export_volume_data(volume_name)
+        assert len(volume_tar) > 0
+
+        image_tag = docker_client.stop_commit_remove(name)
+
+        # "destination" volume — a different name, same as a real cross-node
+        # migration would use, to prove this isn't just reading the same volume back
+        dest_volume_name = f"chameleon-test-vol-dest-{uuid.uuid4().hex[:8]}"
+        docker_client.import_volume_data(dest_volume_name, volume_tar)
+
+        dest_run_config = {
+            "ports": run_config["ports"],
+            "restart_policy": run_config["restart_policy"],
+            "volumes": {dest_volume_name: {"bind": "/data", "mode": "rw"}},
+        }
+        new_container = docker_client.run_container(image_tag, name, dest_run_config)
+        try:
+            assert docker_client.wait_until_running(new_container) is True
+            exit_code, output = new_container.exec_run("cat /data/testfile.txt")
+            assert exit_code == 0
+            assert output.decode().strip() == marker
+        finally:
+            new_container.remove(force=True)
+            docker_client.remove_image(image_tag)
+            client.volumes.get(dest_volume_name).remove(force=True)
+    finally:
+        try:
+            client.containers.get(name).remove(force=True)
+        except Exception:
+            pass
+        try:
+            client.volumes.get(volume_name).remove(force=True)
+        except Exception:
+            pass
 
 
 def test_run_container_is_idempotent_on_name_conflict():

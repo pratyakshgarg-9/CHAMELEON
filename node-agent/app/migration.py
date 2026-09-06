@@ -34,9 +34,27 @@ async def migrate_container(
         raise ContainerNotFound(container_name)
 
     image_tag = await asyncio.to_thread(docker_client.stop_commit_remove, container_name)
+
+    # Stateful data, if any — a *parallel* step alongside the image transfer
+    # below, not a replacement for it. Scoped to one volume: a container
+    # with more than one only has its first migrated (logged), per
+    # node-agent-CLAUDE.md's stateful-migration note. The local volume is
+    # only ever read here, never deleted, so the failure/rollback path below
+    # keeps working unchanged — a rolled-back container's data was never at risk.
+    volume_names = list(run_config.get("volumes") or {})
+    volume_name = volume_names[0] if volume_names else None
+    if len(volume_names) > 1:
+        logger.warning(
+            "container %s has multiple volumes %s — migrating only %s (single-volume scope)",
+            container_name, volume_names, volume_name,
+        )
+    volume_tar_bytes = await asyncio.to_thread(docker_client.export_volume_data, volume_name) if volume_name else None
+
     tar_bytes = await asyncio.to_thread(docker_client.save_image, image_tag)
 
     files = {"file": (f"{container_name}.tar", tar_bytes, "application/x-tar")}
+    if volume_tar_bytes is not None:
+        files["data"] = (f"{volume_name}.tar", volume_tar_bytes, "application/x-tar")
     data = {"metadata": json.dumps({"container_name": container_name, "run_config": run_config})}
     result = await post_multipart(f"{destination.url}/migrate-in", files, data)
 

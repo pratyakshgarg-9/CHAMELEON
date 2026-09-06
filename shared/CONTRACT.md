@@ -50,6 +50,16 @@ See `/schemas` for the exact, machine-checkable JSON Schema of each payload belo
 - Regional cluster leader -> Global Coordinator (`/coordinator/register`,
   `/coordinator/escalate`) — only when local migration options are exhausted.
 
+## Container migration (Node Agent internal, noted here for visibility)
+`POST /migrate-out` -> `POST /migrate-in` now carries a single named
+Docker volume's data alongside the container image, restored on the
+destination before the container starts — not just port bindings and
+restart policy as before (2026-09-06). Scoped to one volume per container
+and to whatever fits in memory on both ends, same limits the existing
+image transfer already has. Internal to Node Agent — doesn't change any
+message shape the other services see. See
+`node-agent/node-agent-CLAUDE.md`'s "Stateful migration" section.
+
 ## Failure vs. malice (Trust Service's call, but everyone should understand it)
 A node that drops out because its VM restarted is not the same as a node that's
 repeatedly lying about its resources or failing auth. Trust scoring must treat
