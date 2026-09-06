@@ -78,9 +78,12 @@ Response: `{"node_id": "...", "trust_score": 0.92, "last_updated": "...", "flags
 - [x] `/trust-service` real service exists — merged into `main` from
       `member3-security-trust`, verified live (2026-09-06); `/coordinator`
       skeleton also merged
-- [ ] mTLS certs issued by Member 3 — still not wired in. node-agent has a
-      tested `MTLS_ENABLED` mechanism ready (dev certs only), but no real
-      per-node certs exist anywhere yet and it's off by default
+- [x] mTLS wired and verified live across all 4 services (2026-09-06) — from
+      one shared CA (`scripts/issue_certs.py`) generated ahead of the review
+      deadline, not Member 3's originally-planned per-node CSR exchange
+      (documented trade-off, see `/shared/CONTRACT.md`'s Auth section and
+      `node-agent/node-agent-CLAUDE.md`). Enforcement is CA-trust-only — no
+      per-request CN-to-`node_id` check yet, same place those docs explain
 
 ## When in doubt
 If a task would require changing anything in this file's contract section, stop and
