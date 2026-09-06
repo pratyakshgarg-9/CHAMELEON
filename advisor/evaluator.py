@@ -16,7 +16,6 @@ Run with:
 from __future__ import annotations
 
 import json
-import time
 from typing import Any, Dict, List, Optional
 
 from generator import generate_scenarios
@@ -29,7 +28,7 @@ def naive_baseline(scenario: Dict[str, Any]) -> Optional[str]:
     candidates = scenario["candidates"]
     if not candidates:
         return None
-    best = min(candidates, key=lambda c: c["cpu_usage_percent"])
+    best = min(candidates, key=lambda c: c["cpu_percent"])
     return best["node_id"]
 
 
@@ -37,8 +36,8 @@ def run_advisor(scenario: Dict[str, Any]) -> Dict[str, Any]:
     candidates = [CandidateStats(**c) for c in scenario["candidates"]]
     result = score_candidates(
         candidates=candidates,
+        overloaded_node=scenario["overloaded_node"],
         max_staleness_seconds=scenario.get("max_staleness_seconds", 30),
-        now=time.time(),
     )
     winner = result.winner.node_id if result.winner else None
     return {"winner": winner, "reasoning": result.reasoning}

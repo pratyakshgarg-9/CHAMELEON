@@ -1,0 +1,152 @@
+[
+  {
+    "scenario": "clear_winner",
+    "description": "edge2 is lightly loaded and fast; edge3 is overloaded and slow.",
+    "expected": "regA-c1-edge2",
+    "advisor": "regA-c1-edge2",
+    "advisor_correct": true,
+    "baseline": "regA-c1-edge2",
+    "baseline_correct": true,
+    "advisor_reasoning": "regA-c1-edge2 selected: strongest on low latency + high trust."
+  },
+  {
+    "scenario": "low_cpu_poor_trust",
+    "description": "edge4 has great CPU headroom but near-zero trust; edge5 is decent everywhere with full trust.",
+    "expected": "edge5",
+    "advisor": "edge5",
+    "advisor_correct": true,
+    "baseline": "edge4",
+    "baseline_correct": false,
+    "advisor_reasoning": "edge5 selected: strongest on high trust + low latency."
+  },
+  {
+    "scenario": "high_trust_high_latency",
+    "description": "edge6 is fully trusted but far away (latency); edge7 is closer and still trustworthy.",
+    "expected": "edge7",
+    "advisor": "edge7",
+    "advisor_correct": true,
+    "baseline": "edge6",
+    "baseline_correct": false,
+    "advisor_reasoning": "edge7 selected: strongest on low latency + high trust."
+  },
+  {
+    "scenario": "stale_candidate_excluded",
+    "description": "edge8 looks perfect but its stats are 5 minutes old; edge9 is decent and fresh.",
+    "expected": "edge9",
+    "advisor": "edge9",
+    "advisor_correct": true,
+    "baseline": "edge8",
+    "baseline_correct": false,
+    "advisor_reasoning": "edge9 selected: strongest on low latency + high trust. Excluded: edge8 (stale (300.2s old))."
+  },
+  {
+    "scenario": "tied_candidates",
+    "description": "edge10 and edge11 have identical stats; tie should resolve alphabetically.",
+    "expected": "edge10",
+    "advisor": "edge10",
+    "advisor_correct": true,
+    "baseline": "edge11",
+    "baseline_correct": false,
+    "advisor_reasoning": "edge10 selected: strongest on low latency + high trust. Tie among [edge10, edge11], resolved alphabetically by node_id."
+  },
+  {
+    "scenario": "all_stale_no_winner",
+    "description": "Every candidate's stats are too old to trust.",
+    "expected": null,
+    "advisor": null,
+    "advisor_correct": true,
+    "baseline": "edge12",
+    "baseline_correct": false,
+    "advisor_reasoning": "No suitable candidate available."
+  },
+  {
+    "scenario": "mixed_disqualifications",
+    "description": "Two stale candidates, one healthy valid candidate.",
+    "expected": "edge18",
+    "advisor": "edge18",
+    "advisor_correct": true,
+    "baseline": "edge16",
+    "baseline_correct": false,
+    "advisor_reasoning": "edge18 selected: strongest on low latency + high trust. Excluded: edge16 (stale (200.2s old)), edge17 (stale (150.2s old))."
+  },
+  {
+    "scenario": "memory_vs_cpu_pressure",
+    "description": "edge19 is memory-starved; edge20 is CPU-heavy but has memory to spare.",
+    "expected": "edge20",
+    "advisor": "edge20",
+    "advisor_correct": true,
+    "baseline": "edge19",
+    "baseline_correct": false,
+    "advisor_reasoning": "edge20 selected: strongest on low latency + high trust."
+  },
+  {
+    "scenario": "thrashy_history_penalized",
+    "description": "edge21 looks okay right now but has been thrashing hard for 5 minutes; edge22 is steady.",
+    "expected": "edge22",
+    "advisor": "edge22",
+    "advisor_correct": true,
+    "baseline": "edge21",
+    "baseline_correct": false,
+    "advisor_reasoning": "edge22 selected: strongest on low latency + high trust."
+  },
+  {
+    "scenario": "three_way_race",
+    "description": "Three plausible candidates; edge25 is best across the board.",
+    "expected": "edge25",
+    "advisor": "edge25",
+    "advisor_correct": true,
+    "baseline": "edge25",
+    "baseline_correct": true,
+    "advisor_reasoning": "edge25 selected: strongest on low latency + high trust."
+  },
+  {
+    "scenario": "least_bad_option",
+    "description": "Every candidate is under pressure; advisor should still pick the relatively best one.",
+    "expected": "edge28",
+    "advisor": "edge28",
+    "advisor_correct": true,
+    "baseline": "edge28",
+    "baseline_correct": true,
+    "advisor_reasoning": "edge28 selected: strongest on high trust + low latency."
+  },
+  {
+    "scenario": "zero_trust_avoided",
+    "description": "edge29 has decent resources but zero trust; edge30 is similar but highly trusted.",
+    "expected": "edge30",
+    "advisor": "edge30",
+    "advisor_correct": true,
+    "baseline": "edge29",
+    "baseline_correct": false,
+    "advisor_reasoning": "edge30 selected: strongest on high trust + low latency."
+  },
+  {
+    "scenario": "single_candidate",
+    "description": "Only one candidate is offered; it should win by default (if valid).",
+    "expected": "edge31",
+    "advisor": "edge31",
+    "advisor_correct": true,
+    "baseline": "edge31",
+    "baseline_correct": true,
+    "advisor_reasoning": "edge31 selected: strongest on low latency + high trust."
+  },
+  {
+    "scenario": "empty_candidate_list",
+    "description": "No candidates sent at all.",
+    "expected": null,
+    "advisor": null,
+    "advisor_correct": true,
+    "baseline": null,
+    "baseline_correct": true,
+    "advisor_reasoning": "No suitable candidate available."
+  },
+  {
+    "scenario": "boundary_staleness",
+    "description": "edge32 is just past the staleness threshold; edge33 is comfortably fresh.",
+    "expected": "edge33",
+    "advisor": "edge33",
+    "advisor_correct": true,
+    "baseline": "edge32",
+    "baseline_correct": false,
+    "advisor_reasoning": "edge33 selected: strongest on low latency + high trust. Excluded: edge32 (stale (31.2s old))."
+  }
+]
