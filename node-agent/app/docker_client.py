@@ -123,7 +123,18 @@ def export_volume_data(volume_name: str) -> bytes:
     _ensure_image(client, _HELPER_IMAGE)
     helper = client.containers.create(_HELPER_IMAGE, command="true", volumes={volume_name: {"bind": "/data", "mode": "ro"}})
     try:
-        stream, _ = helper.get_archive("/data")
+        # "/data/." (not "/data") — matches `docker cp src/. dest` semantics:
+        # copy the directory's CONTENTS, not the directory itself wrapped in
+        # a "data/" entry. Without the trailing "/.", the returned tar nests
+        # everything one level deeper (a top-level "data/" folder), so
+        # put_archive("/data", ...) on the other end would restore into
+        # /data/data/... instead of /data/... . Confirmed by direct
+        # inspection of the tar contents and of a restored volume — this
+        # silently produced a container with an empty-looking /data on a
+        # real second machine (caught by AWS re-verification; a same-daemon
+        # local test had accidentally masked it — see the regression test's
+        # comment for how).
+        stream, _ = helper.get_archive("/data/.")
         return b"".join(stream)
     finally:
         helper.remove(force=True)

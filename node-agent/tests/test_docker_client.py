@@ -58,6 +58,20 @@ def test_stateful_migration_preserves_volume_data():
     recreate sequence (the real /migrate-out -> /migrate-in mechanics, just
     called directly instead of over HTTP), and confirm the file survives
     unchanged on the "destination" side.
+
+    Deliberately does NOT write the marker as part of the container's own
+    startup command (e.g. `sh -c "echo ... > /data/testfile.txt && sleep
+    300"`) — that command gets baked into the committed image and would
+    re-execute (rewriting the same file) every time the image is used to
+    start a new container, which would make this test pass regardless of
+    whether the volume-restore mechanism actually works. An earlier version
+    of this test had exactly that bug and passed locally while the real
+    mechanism underneath it was broken (a get_archive/put_archive path
+    nesting issue, only caught by cross-machine AWS testing — see
+    export_volume_data's comment). Writing the marker via a separate
+    exec_run, with a static `sleep` as the container's own command, means
+    recreating the container from the committed image does nothing to
+    /data on its own — only import_volume_data can make the file reappear.
     """
     client = docker_client.get_client()
     name = f"chameleon-test-{uuid.uuid4().hex[:8]}"
@@ -66,18 +80,21 @@ def test_stateful_migration_preserves_volume_data():
 
     container = client.containers.run(
         "busybox",
-        f"sh -c \"echo '{marker}' > /data/testfile.txt && sleep 300\"",
+        "sleep 300",
         name=name,
         detach=True,
         volumes={volume_name: {"bind": "/data", "mode": "rw"}},
     )
     try:
-        # give the shell a moment to actually write the file before we stop it
+        # give the container a moment to actually be running before we exec into it
         for _ in range(20):
             container.reload()
             if container.status == "running":
                 break
             time.sleep(0.1)
+
+        exit_code, _ = container.exec_run(f"sh -c \"echo '{marker}' > /data/testfile.txt\"")
+        assert exit_code == 0
 
         run_config = docker_client.get_run_config(name)
         assert run_config["volumes"] == {volume_name: {"bind": "/data", "mode": "rw"}}
