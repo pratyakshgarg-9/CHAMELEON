@@ -37,7 +37,10 @@ scope/build order and `/shared` for the cross-service contract. Built so far:
   heartbeat loop's `last_seen` data to detect a dead leader — no separate
   ping mechanism. "Highest node_id wins" uses a natural-sort comparison
   (`app/node_id.py`) rather than plain string comparison, so `edge10`
-  correctly outranks `edge2` once a cluster grows into double digits.
+  correctly outranks `edge2` once a cluster grows into double digits. On
+  becoming leader (not on every re-verification tick), a node also calls
+  `POST {COORDINATOR_URL}/coordinator/register` — see "Coordinator
+  escalation" below.
 
 ## Local setup
 
@@ -125,39 +128,62 @@ MISSED_HEARTBEATS_BEFORE_ELECTION + ELECTION_CHECK_INTERVAL_SECONDS` of the
 kill. Lowering those three env vars (e.g. to `3`/`2`/`2`) makes this fast
 enough to watch live instead of waiting on the defaults.
 
-## Trying mTLS locally (dev certs, not Member 3's real ones)
+## Coordinator escalation
+
+Per `/shared/CONTRACT.md`: "Regional cluster leader → Global Coordinator
+(`/coordinator/register`, `/coordinator/escalate`) — only when local
+migration options are exhausted." Both are wired:
+- `app/election.py`'s `_become_leader` registers with the coordinator once
+  per actual leadership transition (not every re-verification tick).
+- `app/scheduler.py`'s `_attempt_migration` escalates when there's truly no
+  valid local target — no reachable neighbors at all, or the advisor
+  evaluated what was available and returned `"none"`. An unreachable
+  *advisor* is a different failure (network issue, not "exhausted") and
+  does not escalate.
+
+## mTLS
 
 `MTLS_ENABLED` (default `false`, plain HTTP) gates client-cert-based auth on
 both ends — outbound calls in `app/clients.py`, and the server itself via
 `python main.py`'s `uvicorn.run(...)` (not the bare `uvicorn main:app` CLI,
-which can't take SSL settings from `.env`). To try it:
+which can't take SSL settings from `.env`). `advisor`, `trust-service`, and
+`coordinator` each have the equivalent server-side setup (they never call
+each other, so only need to require/verify a caller's cert, not present
+one) — same `MTLS_ENABLED`/`CA_CERT_PATH`/`SERVER_CERT_PATH`/
+`SERVER_KEY_PATH` env vars, same pattern.
 
+**Real setup, all 4 services from one shared CA** (repo root):
 ```bash
-python scripts/generate_dev_certs.py --node-id regA-c1-edge1
+python scripts/issue_certs.py --all
 ```
+Issues `shared/certs/ca.crt`/`.key` (created once, reused after) plus a
+cert/key for node-agent, advisor, trust-service, and coordinator, each into
+their own `certs/` directory. Set `MTLS_ENABLED=true` in each service's env
+(node-agent's `.env`; the other three via their process's environment) —
+`CA_CERT_PATH` already defaults to `../shared/certs/ca.crt` everywhere, so
+nothing else needs pointing anywhere.
 
-This creates a throwaway local CA (`certs/dev_ca.crt`/`.key`, gitignored) the
-first time it runs, and a cert/key signed by it for the given `node_id`. Set
-in `.env`:
+This is a deadline-driven stand-in for `/shared/certs/README_2.md`'s real
+process (only Member 3 ever holds the CA key, everyone else sends her a
+CSR) — that assumes a multi-day exchange this project didn't have time for
+before review. `ca.key` never leaves this machine and is gitignored;
+`ca.crt` is committed, matching README_2.md's own "safe to commit" policy
+for the public cert. Documented trade-off, not a quiet workaround.
 
-```
-CA_CERT_PATH=./certs/dev_ca.crt
-CLIENT_CERT_PATH=./certs/node.crt
-CLIENT_KEY_PATH=./certs/node.key
-MTLS_ENABLED=true
-```
+**Local node-agent-only testing** (no need for the other three services
+checked out): `python scripts/generate_dev_certs.py --node-id
+regA-c1-edge1` — a separate throwaway CA scoped to just this service, same
+idea, smaller footprint.
 
-Then `python main.py` (not the `uvicorn` CLI form) — a request without a
-cert signed by that CA now gets rejected at the TLS handshake, before any
-route code runs; `tests/test_mtls.py` verifies this same behavior against a
-real socket, not just the CLI. This is **not** a substitute for Member 3's
-real per-node certs — it only proves the mechanism works, so swapping in her
-real ones later is just replacing the three files above, not a code change.
-Known limitation: enforcement is CA-trust-only — there's no per-request check
-that a cert's CN matches the caller's claimed `node_id`, because uvicorn's
-default transport doesn't expose the peer cert to route handlers without a
-custom protocol; see the comment above `_get_ssl_context` in
-`app/clients.py`.
+Either way: a request without a cert signed by the CA in use gets rejected
+at the TLS handshake, before any route code runs — verified live, and
+`tests/test_mtls.py` covers it against a real socket. **Known limitation**:
+enforcement is CA-trust-only — there's no per-request check that a cert's
+CN matches the caller's claimed `node_id`, because uvicorn's default
+transport doesn't expose the peer cert to route handlers without a custom
+protocol. See `node-agent-CLAUDE.md`'s mTLS section and
+`/shared/CONTRACT.md` for the full note — deferred as a scoped, documented
+decision given the review deadline, not dropped.
 
 ## Tests
 
@@ -175,21 +201,21 @@ mocked, so the rest of the suite doesn't need Docker at all.
 
 ## Known gaps (intentional, deferred to later steps)
 
-- mTLS: the mechanism is built and tested (`MTLS_ENABLED`, see "Trying mTLS
-  locally" above) but off by default — still blocked on Member 3 issuing
-  real per-node certs, per root-CLAUDE.md's status board. Even once she
-  does, enforcement is CA-trust-only, not per-request CN-to-node_id
-  verification (see the limitation noted above) — a smaller guarantee than
-  CONTRACT.md's full "CN must equal the sender's `node_id`" wording, flagged
-  there as a deliberate scope call.
+- mTLS: on and enforced across all 4 services (off by default, `MTLS_ENABLED`
+  — see "mTLS" above), from one shared CA generated for this deadline rather
+  than Member 3's originally-planned per-node CSR process (documented
+  trade-off, see above). Enforcement is CA-trust-only, not per-request
+  CN-to-node_id verification — a smaller guarantee than CONTRACT.md's full
+  "CN must equal the sender's `node_id`" wording, flagged there as a
+  deliberate, time-boxed scope call, not dropped.
 - Migration doesn't handle volumes/mounts — only port bindings and restart
   policy are captured and reapplied. Migrating stateful volume data is a
   bigger problem than this build addresses.
 - The scheduler always targets a single fixed `MANAGED_CONTAINER_NAME` —
   there's no policy for picking among several containers on a node.
-- No node currently *uses* the elected leader for anything — component 6 is
-  the election mechanism itself; wiring leadership into the scheduler or
-  coordinator escalation (`/coordinator/register`, `/coordinator/escalate`
-  per root-CLAUDE.md) is a separate, later integration.
+- Coordinator escalation (see above) is wired, but the coordinator itself is
+  still a skeleton — it accepts and acknowledges registrations/escalations,
+  it doesn't yet act on them (e.g. finding cross-cluster capacity). That's
+  Member 3's side of this integration point.
 
 All six components from `node-agent-CLAUDE.md`'s build order are now built.

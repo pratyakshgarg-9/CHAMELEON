@@ -63,3 +63,25 @@ not a rewrite.
 - Type hints on all function signatures.
 - Keep endpoint handlers thin — business logic (scoring thresholds, election logic)
   goes in separate modules, not inline in the FastAPI route functions.
+
+## mTLS: known, deliberate limitation (not an oversight)
+
+`MTLS_ENABLED=true` gives real mutual TLS — every inter-service call
+requires and verifies a cert signed by the shared CA
+(`shared/certs/ca.crt`, issued via `scripts/issue_certs.py`). What it does
+**not** do: check that a cert's CN matches the caller's claimed `node_id`.
+Enforcement is CA-trust-only (any cert our CA signed is accepted), not
+per-identity.
+
+Why: uvicorn's default ASGI transport doesn't expose the peer certificate
+to route handlers (verified empirically — `request.scope["extensions"]` is
+empty on a real mTLS connection). Adding the CN check would mean writing a
+custom uvicorn/asyncio Protocol, real untested infrastructure, under a
+tight pre-review deadline. Decided against building it right now — CA-trust
+is still a real security boundary (verified live: a request with no cert,
+or a cert from an unrelated CA, is rejected at the TLS handshake before any
+route code runs), just not the full per-request identity check
+CONTRACT.md's mTLS section describes. See the `# TODO(mTLS-CN-check)`
+comments at the exact `ssl_cert_reqs=ssl.CERT_REQUIRED` call sites in
+`main.py`, `advisor/app.py`, `trust-service/app.py`, `coordinator/app.py`
+for where this would extend, not replace, the existing setup.

@@ -1,6 +1,6 @@
 # CHAMELEON — Shared Contract
 
-Last updated: 2026-08-26 (bump this date whenever anything below changes)
+Last updated: 2026-09-06 (bump this date whenever anything below changes)
 
 ## Port allocation
 | Service | Owner | Port |
@@ -26,6 +26,16 @@ See `/schemas` for the exact, machine-checkable JSON Schema of each payload belo
 - **Auth:** every request between services carries an mTLS client certificate;
   the certificate's CN must equal the sender's `node_id`. Requests without a
   valid cert are rejected, not logged-and-allowed.
+  > **Known implementation limitation (2026-09-06):** all four services now
+  > enforce mTLS this way — a request without a cert signed by the shared CA
+  > (`shared/certs/ca.crt`) is rejected at the TLS handshake, which is a real
+  > security boundary and verified live. What's **not** yet implemented is
+  > the per-request CN-to-`node_id` check: uvicorn's default ASGI transport
+  > doesn't expose the peer certificate to route handlers without a custom
+  > transport, and building that wasn't worth the risk this close to review.
+  > Enforcement today is CA-trust-only (any cert our CA signed is accepted),
+  > not per-identity. Scoped as later hardening, not dropped — see
+  > `node-agent/node-agent-CLAUDE.md`'s mTLS section for the full note.
 - **Config:** every service reads these env var names, not custom equivalents —
   `NODE_ID`, `REGION`, `CLUSTER`, `ADVISOR_URL`, `TRUST_URL`, `CA_CERT_PATH`.
 - **No hardcoded IPs or ports** in any service's code — always read from config.
