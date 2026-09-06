@@ -54,7 +54,8 @@ async def start_election(registry: PeerRegistry, state: ElectionState) -> None:
 
 
 async def _become_leader(registry: PeerRegistry, state: ElectionState) -> None:
-    if state.current_leader != settings.NODE_ID:
+    is_new_leader = state.current_leader != settings.NODE_ID
+    if is_new_leader:
         logger.warning("this node is now the leader of %s/%s", settings.REGION, settings.CLUSTER)
     state.current_leader = settings.NODE_ID
 
@@ -69,6 +70,18 @@ async def _become_leader(registry: PeerRegistry, state: ElectionState) -> None:
         await asyncio.gather(
             *(post_json(f"{p.url}/coordinator", {"leader_node_id": settings.NODE_ID}) for p in peers),
             return_exceptions=True,
+        )
+
+    if is_new_leader:
+        # Per CONTRACT.md: "Regional cluster leader -> Global Coordinator
+        # (/coordinator/register, /coordinator/escalate)". Registered once
+        # per actual leadership transition, not every re-verification tick
+        # (see check_leader_liveness's self-healing re-run) — the
+        # coordinator only needs to know who's currently leading, not be
+        # pinged every unchanged tick.
+        await post_json(
+            f"{settings.COORDINATOR_URL}/coordinator/register",
+            {"region": settings.REGION, "cluster": settings.CLUSTER, "leader_node_id": settings.NODE_ID},
         )
 
 

@@ -55,10 +55,30 @@ async def _gather_candidate_stats(registry: PeerRegistry) -> list[StatsPayload]:
     return candidates
 
 
+async def _escalate_to_coordinator(reason: str, candidates_considered: int) -> None:
+    # Per CONTRACT.md: "Regional cluster leader -> Global Coordinator
+    # (/coordinator/register, /coordinator/escalate) — only when local
+    # migration options are exhausted." This is that exact case: either no
+    # neighbor was reachable to even consider, or the advisor evaluated
+    # what was available and found nothing valid.
+    logger.warning("local migration options exhausted (%s) — escalating to coordinator", reason)
+    await post_json(
+        f"{settings.COORDINATOR_URL}/coordinator/escalate",
+        {
+            "node_id": settings.NODE_ID,
+            "region": settings.REGION,
+            "cluster": settings.CLUSTER,
+            "reason": reason,
+            "candidates_considered": candidates_considered,
+        },
+    )
+
+
 async def _attempt_migration(registry: PeerRegistry) -> None:
     candidates = await _gather_candidate_stats(registry)
     if not candidates:
         logger.warning("no reachable neighbors to consider for migration — skipping this cycle")
+        await _escalate_to_coordinator("no reachable neighbors", candidates_considered=0)
         return
 
     request_body = {
@@ -78,6 +98,7 @@ async def _attempt_migration(registry: PeerRegistry) -> None:
 
     if recommendation.recommended_node == "none":
         logger.info("advisor recommended no migration this cycle")
+        await _escalate_to_coordinator("advisor found no valid candidate", candidates_considered=len(candidates))
         return
 
     candidate_ids = {c.node_id for c in candidates}

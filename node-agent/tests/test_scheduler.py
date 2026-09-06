@@ -232,6 +232,98 @@ async def test_attempt_migration_triggers_on_valid_recommendation(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_attempt_migration_escalates_when_no_reachable_neighbors(monkeypatch):
+    registry = PeerRegistry([])  # no neighbors at all -> no candidates
+
+    escalations = []
+
+    async def fake_post_json(url, body):
+        if url.endswith("/coordinator/escalate"):
+            escalations.append(body)
+        return {"status": "accepted"}
+
+    monkeypatch.setattr(scheduler, "post_json", fake_post_json)
+
+    await scheduler._attempt_migration(registry)
+
+    assert len(escalations) == 1
+    assert escalations[0]["reason"] == "no reachable neighbors"
+    assert escalations[0]["candidates_considered"] == 0
+
+
+@pytest.mark.asyncio
+async def test_attempt_migration_escalates_on_recommended_none(monkeypatch):
+    registry = PeerRegistry([NeighborConfig(node_id="regA-c1-edge2", url="http://localhost:9999")])
+
+    async def fake_get_json(url):
+        return {
+            "node_id": "regA-c1-edge2",
+            "timestamp": "2026-08-26T00:00:00Z",
+            "cpu_percent": 10,
+            "mem_percent": 10,
+            "latency_ms": {},
+            "history_load_avg_5m": 10,
+            "trust_score": 1.0,
+        }
+
+    escalations = []
+
+    async def fake_post_json(url, body):
+        if url.endswith("/coordinator/escalate"):
+            escalations.append(body)
+            return {"status": "accepted"}
+        return {"recommended_node": "none", "score": 0.0, "reasoning": "nothing qualifies"}
+
+    monkeypatch.setattr(scheduler, "get_json", fake_get_json)
+    monkeypatch.setattr(scheduler, "post_json", fake_post_json)
+
+    await scheduler._attempt_migration(registry)
+
+    assert len(escalations) == 1
+    assert escalations[0]["reason"] == "advisor found no valid candidate"
+    assert escalations[0]["candidates_considered"] == 1
+
+
+@pytest.mark.asyncio
+async def test_attempt_migration_does_not_escalate_on_successful_migration(monkeypatch):
+    monkeypatch.setattr(settings, "MANAGED_CONTAINER_NAME", "my-app")
+    registry = PeerRegistry([NeighborConfig(node_id="regA-c1-edge2", url="http://localhost:9999")])
+
+    async def fake_get_json(url):
+        return {
+            "node_id": "regA-c1-edge2",
+            "timestamp": "2026-08-26T00:00:00Z",
+            "cpu_percent": 10,
+            "mem_percent": 10,
+            "latency_ms": {},
+            "history_load_avg_5m": 10,
+            "trust_score": 1.0,
+        }
+
+    escalations = []
+
+    async def fake_post_json(url, body):
+        if url.endswith("/coordinator/escalate"):
+            escalations.append(body)
+            return {"status": "accepted"}
+        return {"recommended_node": "regA-c1-edge2", "score": 0.9, "reasoning": "lowest load"}
+
+    monkeypatch.setattr(scheduler, "get_json", fake_get_json)
+    monkeypatch.setattr(scheduler, "post_json", fake_post_json)
+
+    async def fake_migrate_container(registry_arg, container_name, destination_node):
+        from app.models import MigrateOutResponse
+
+        return MigrateOutResponse(status="migrated", container_name=container_name, destination_node=destination_node)
+
+    monkeypatch.setattr(scheduler, "migrate_container", fake_migrate_container)
+
+    await scheduler._attempt_migration(registry)
+
+    assert escalations == []
+
+
+@pytest.mark.asyncio
 async def test_gather_candidate_stats_excludes_unreachable_and_malformed(monkeypatch):
     registry = PeerRegistry(
         [

@@ -39,7 +39,30 @@ async def test_start_election_becomes_leader_when_no_higher_peers(monkeypatch):
     await election.start_election(registry, state)
 
     assert state.current_leader == "regA-c1-edge5"
-    assert announced == ["http://localhost:8001/coordinator"]
+    # Peer announce + one coordinator registration (new leadership transition)
+    assert set(announced) == {"http://localhost:8001/coordinator", f"{settings.COORDINATOR_URL}/coordinator/register"}
+
+
+@pytest.mark.asyncio
+async def test_become_leader_registers_with_coordinator_only_on_transition(monkeypatch):
+    monkeypatch.setattr(settings, "NODE_ID", "regA-c1-edge5")
+    registry = PeerRegistry([])
+    state = election.ElectionState()
+
+    registrations = []
+
+    async def fake_post_json(url, body):
+        if url.endswith("/coordinator/register"):
+            registrations.append(body)
+        return {"status": "ack"}
+
+    monkeypatch.setattr(election, "post_json", fake_post_json)
+
+    await election._become_leader(registry, state)
+    await election._become_leader(registry, state)  # already leader — re-verification tick
+
+    assert len(registrations) == 1
+    assert registrations[0] == {"region": settings.REGION, "cluster": settings.CLUSTER, "leader_node_id": "regA-c1-edge5"}
 
 
 @pytest.mark.asyncio
