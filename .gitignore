@@ -9,7 +9,10 @@ __pycache__/
 # Trust Service local database
 trust-service/trust.db
 
-# Internal CA private key
+# Internal CA private key — the CA cert itself (shared/certs/ca.crt) is
+# intentionally NOT ignored: /shared/certs/README_2.md is explicit that the
+# CA's public cert is safe to commit, only its private key never should be.
+shared/certs/ca.key
 shared/certs/ca/ca.key
 
 # Node private keys
@@ -18,20 +21,22 @@ shared/certs/nodes/*.key
 node-agent/certs/*.key
 node-agent/certs/*.crt
 shared/certs/ca/*.srl
-shared/certs/ca/ca.key
-shared/certs/ca/*.srl
-shared/certs/ca/ca.key
 
 # Generated CA and node certificates
 shared/certs/ca/*.crt
 shared/certs/nodes/*.crt
 shared/certs/nodes/*.csr
-shared/certs/ca.crt
+
+# AI Advisor local certificates
+advisor/certs/*.key
+advisor/certs/*.crt
 
 # Trust Service local certificates
 trust-service/*.key
 trust-service/*.csr
 trust-service/*.crt
+trust-service/certs/*.key
+trust-service/certs/*.crt
 
 # Global Coordinator local certificates
 coordinator/certs/*.key
