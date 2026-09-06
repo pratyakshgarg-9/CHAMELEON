@@ -73,9 +73,14 @@ Response: `{"node_id": "...", "trust_score": 0.92, "last_updated": "...", "flags
   `CA_CERT_PATH`. No hardcoded IPs/ports anywhere in code.
 
 ## Current status (update this as the project moves)
-- [ ] `/advisor` real service exists — using stub for now
-- [ ] `/trust-service` real service exists — using stub for now
-- [ ] mTLS certs issued by Member 3 — not yet wired in
+- [x] `/advisor` real service exists — merged into `main`, verified against
+      the shared contract and running live (2026-09-06)
+- [x] `/trust-service` real service exists — merged into `main` from
+      `member3-security-trust`, verified live (2026-09-06); `/coordinator`
+      skeleton also merged
+- [ ] mTLS certs issued by Member 3 — still not wired in. node-agent has a
+      tested `MTLS_ENABLED` mechanism ready (dev certs only), but no real
+      per-node certs exist anywhere yet and it's off by default
 
 ## When in doubt
 If a task would require changing anything in this file's contract section, stop and
