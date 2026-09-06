@@ -12,6 +12,7 @@ Run with:
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -21,6 +22,15 @@ from scorer import score_candidates
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("chameleon.advisor")
+
+# mTLS (server-side only — advisor never calls another CHAMELEON service
+# itself, per CONTRACT.md, so it only needs to require/verify a caller's
+# cert, not present one). Off by default; see /shared/CONTRACT.md's mTLS
+# section for the CA-trust-only scope this implements.
+MTLS_ENABLED = os.environ.get("MTLS_ENABLED", "false").lower() == "true"
+CA_CERT_PATH = os.environ.get("CA_CERT_PATH", "../shared/certs/ca.crt")
+SERVER_CERT_PATH = os.environ.get("SERVER_CERT_PATH", "./certs/node.crt")
+SERVER_KEY_PATH = os.environ.get("SERVER_KEY_PATH", "./certs/node.key")
 
 app = FastAPI(
     title="CHAMELEON AI Advisor",
@@ -75,3 +85,29 @@ async def unhandled_exception_handler(request, exc):
     # response as "advisor unavailable, fall back to your own logic".
     logger.exception("Unhandled error processing request")
     return JSONResponse(status_code=500, content={"error": "internal_error", "detail": str(exc)})
+
+
+if __name__ == "__main__":
+    import ssl
+
+    import uvicorn
+
+    run_kwargs = {"host": "0.0.0.0", "port": 8100}
+
+    if MTLS_ENABLED:
+        run_kwargs.update(
+            ssl_certfile=SERVER_CERT_PATH,
+            ssl_keyfile=SERVER_KEY_PATH,
+            ssl_ca_certs=CA_CERT_PATH,
+            # CA-trust-only: any cert signed by our CA is accepted. No
+            # per-request check that the cert's CN matches the caller's
+            # claimed node_id — uvicorn's default ASGI transport doesn't
+            # expose the peer certificate to route handlers without a
+            # custom transport. Deferred (time constraint before review,
+            # not an oversight) — see node-agent/node-agent-CLAUDE.md and
+            # /shared/CONTRACT.md for the full note.
+            # TODO(mTLS-CN-check): verify peer cert CN == caller's node_id here.
+            ssl_cert_reqs=ssl.CERT_REQUIRED,
+        )
+
+    uvicorn.run(app, **run_kwargs)
