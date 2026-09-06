@@ -6,6 +6,7 @@ from typing import Optional
 from app.clients import post_json
 from app.config import settings
 from app.neighbors import PeerRegistry
+from app.node_id import sort_key
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,8 @@ async def start_election(registry: PeerRegistry, state: ElectionState) -> None:
         return
     state.election_in_progress = True
     try:
-        higher = [p for p in _cluster_peers(registry) if p.node_id > settings.NODE_ID]
+        self_key = sort_key(settings.NODE_ID)
+        higher = [p for p in _cluster_peers(registry) if sort_key(p.node_id) > self_key]
         if higher:
             responses = await asyncio.gather(
                 *(post_json(f"{p.url}/election", {"from_node_id": settings.NODE_ID}) for p in higher)

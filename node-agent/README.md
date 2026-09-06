@@ -35,7 +35,9 @@ scope/build order and `/shared` for the cross-service contract. Built so far:
   race leaves a permanent split-brain (found via a live 3-node run; see the
   comment on `check_leader_liveness`). Piggybacks on the component-3
   heartbeat loop's `last_seen` data to detect a dead leader — no separate
-  ping mechanism.
+  ping mechanism. "Highest node_id wins" uses a natural-sort comparison
+  (`app/node_id.py`) rather than plain string comparison, so `edge10`
+  correctly outranks `edge2` once a cluster grows into double digits.
 
 ## Local setup
 
@@ -123,6 +125,40 @@ MISSED_HEARTBEATS_BEFORE_ELECTION + ELECTION_CHECK_INTERVAL_SECONDS` of the
 kill. Lowering those three env vars (e.g. to `3`/`2`/`2`) makes this fast
 enough to watch live instead of waiting on the defaults.
 
+## Trying mTLS locally (dev certs, not Member 3's real ones)
+
+`MTLS_ENABLED` (default `false`, plain HTTP) gates client-cert-based auth on
+both ends — outbound calls in `app/clients.py`, and the server itself via
+`python main.py`'s `uvicorn.run(...)` (not the bare `uvicorn main:app` CLI,
+which can't take SSL settings from `.env`). To try it:
+
+```bash
+python scripts/generate_dev_certs.py --node-id regA-c1-edge1
+```
+
+This creates a throwaway local CA (`certs/dev_ca.crt`/`.key`, gitignored) the
+first time it runs, and a cert/key signed by it for the given `node_id`. Set
+in `.env`:
+
+```
+CA_CERT_PATH=./certs/dev_ca.crt
+CLIENT_CERT_PATH=./certs/node.crt
+CLIENT_KEY_PATH=./certs/node.key
+MTLS_ENABLED=true
+```
+
+Then `python main.py` (not the `uvicorn` CLI form) — a request without a
+cert signed by that CA now gets rejected at the TLS handshake, before any
+route code runs; `tests/test_mtls.py` verifies this same behavior against a
+real socket, not just the CLI. This is **not** a substitute for Member 3's
+real per-node certs — it only proves the mechanism works, so swapping in her
+real ones later is just replacing the three files above, not a code change.
+Known limitation: enforcement is CA-trust-only — there's no per-request check
+that a cert's CN matches the caller's claimed `node_id`, because uvicorn's
+default transport doesn't expose the peer cert to route handlers without a
+custom protocol; see the comment above `_get_ssl_context` in
+`app/clients.py`.
+
 ## Tests
 
 ```bash
@@ -139,18 +175,18 @@ mocked, so the rest of the suite doesn't need Docker at all.
 
 ## Known gaps (intentional, deferred to later steps)
 
-- mTLS isn't applied to outbound calls yet (`app/clients.py` has a `TODO`) —
-  blocked on Member 3 issuing real per-node certs, per root-CLAUDE.md's
-  status board.
+- mTLS: the mechanism is built and tested (`MTLS_ENABLED`, see "Trying mTLS
+  locally" above) but off by default — still blocked on Member 3 issuing
+  real per-node certs, per root-CLAUDE.md's status board. Even once she
+  does, enforcement is CA-trust-only, not per-request CN-to-node_id
+  verification (see the limitation noted above) — a smaller guarantee than
+  CONTRACT.md's full "CN must equal the sender's `node_id`" wording, flagged
+  there as a deliberate scope call.
 - Migration doesn't handle volumes/mounts — only port bindings and restart
   policy are captured and reapplied. Migrating stateful volume data is a
   bigger problem than this build addresses.
 - The scheduler always targets a single fixed `MANAGED_CONTAINER_NAME` —
   there's no policy for picking among several containers on a node.
-- Leader election uses plain string comparison on the full `node_id` for
-  "highest wins" — correct at this project's 3-4 VM scale, but a 10+ node
-  cluster would need numeric suffix comparison to sort correctly (e.g.
-  `edge10` < `edge2` as strings).
 - No node currently *uses* the elected leader for anything — component 6 is
   the election mechanism itself; wiring leadership into the scheduler or
   coordinator escalation (`/coordinator/register`, `/coordinator/escalate`

@@ -75,6 +75,25 @@ async def test_start_election_becomes_leader_when_higher_peer_unreachable(monkey
 
 
 @pytest.mark.asyncio
+async def test_start_election_treats_double_digit_node_as_higher(monkeypatch):
+    # Regression test for the string-vs-numeric node_id comparison bug:
+    # plain string comparison would treat "edge10" as LOWER than "edge2"
+    # ('1' < '2'), wrongly making edge2 defer to nobody and self-elect.
+    monkeypatch.setattr(settings, "NODE_ID", "regA-c1-edge2")
+    registry = _registry_with_peers(("regA-c1-edge10", "http://localhost:8010", "regA", "c1"))
+    state = election.ElectionState()
+
+    async def fake_post_json(url, body):
+        return {"status": "ok"}  # edge10 is alive
+
+    monkeypatch.setattr(election, "post_json", fake_post_json)
+
+    await election.start_election(registry, state)
+
+    assert state.current_leader is None  # edge2 correctly deferred to edge10
+
+
+@pytest.mark.asyncio
 async def test_start_election_skips_when_already_in_progress(monkeypatch):
     registry = _registry_with_peers(("regA-c1-edge2", "http://localhost:8001", "regA", "c1"))
     state = election.ElectionState()
