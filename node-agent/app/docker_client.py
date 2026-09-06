@@ -98,6 +98,20 @@ def run_container(image, container_name: str, run_config: dict):
     )
 
 
+_HELPER_IMAGE = "busybox"
+
+
+def _ensure_image(client: docker.DockerClient, image: str) -> None:
+    """containers.create() (unlike .run()) does NOT auto-pull a missing
+    image — only surfaced on a host that never happened to have `busybox`
+    cached already (a real destination VM, not a dev machine with it
+    already pulled from earlier testing). Explicit pull-if-missing here."""
+    try:
+        client.images.get(image)
+    except NotFound:
+        client.images.pull(image)
+
+
 def export_volume_data(volume_name: str) -> bytes:
     """Tars up a named volume's contents via the same get_archive/put_archive
     primitives `docker cp` itself uses — no exec, no shelling out to `tar`,
@@ -106,7 +120,8 @@ def export_volume_data(volume_name: str) -> bytes:
     to a single volume per node-agent-CLAUDE.md's stateful-migration note.
     """
     client = get_client()
-    helper = client.containers.create("busybox", command="true", volumes={volume_name: {"bind": "/data", "mode": "ro"}})
+    _ensure_image(client, _HELPER_IMAGE)
+    helper = client.containers.create(_HELPER_IMAGE, command="true", volumes={volume_name: {"bind": "/data", "mode": "ro"}})
     try:
         stream, _ = helper.get_archive("/data")
         return b"".join(stream)
@@ -122,12 +137,13 @@ def import_volume_data(volume_name: str, tar_bytes: bytes) -> None:
     restore.
     """
     client = get_client()
+    _ensure_image(client, _HELPER_IMAGE)
     try:
         client.volumes.get(volume_name)
     except NotFound:
         client.volumes.create(volume_name)
 
-    helper = client.containers.create("busybox", command="true", volumes={volume_name: {"bind": "/data", "mode": "rw"}})
+    helper = client.containers.create(_HELPER_IMAGE, command="true", volumes={volume_name: {"bind": "/data", "mode": "rw"}})
     try:
         helper.put_archive("/data", tar_bytes)
     finally:
