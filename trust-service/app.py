@@ -191,9 +191,12 @@ def report_trust_event(report: TrustReport):
     # A temporary VM restart/dropout is not treated as malicious.
     elif report.event_type in ("vm_restart", "temporary_dropout"):
         pass
-    
-    # Update timestamp
-        current.last_updated = (
+
+    # Update timestamp (was nested inside the elif above by an indentation
+    # slip, so it only ever fired for vm_restart/temporary_dropout —
+    # auth_failure/inconsistent_stats/clean_migration left last_updated
+    # stale. Verified live with a TestClient before and after this fix.)
+    current.last_updated = (
         datetime.now(timezone.utc)
         .isoformat()
         .replace("+00:00", "Z")
