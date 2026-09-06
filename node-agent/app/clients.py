@@ -10,7 +10,12 @@ logger = logging.getLogger(__name__)
 
 # Shared inter-service convention from /shared/CONTRACT.md: 3s connect / 5s
 # read timeout, 2 retries, then fail safe (skip the action, don't crash).
-TIMEOUT = httpx.Timeout(connect=3.0, read=5.0, write=5.0, pool=5.0)
+TIMEOUT = httpx.Timeout(
+    connect=3.0,
+    read=5.0,
+    write=5.0,
+    pool=5.0,
+)
 MAX_ATTEMPTS = 3  # initial attempt + 2 retries
 
 # Transferring a container image + having the receiver load/run/confirm-
@@ -18,7 +23,12 @@ MAX_ATTEMPTS = 3  # initial attempt + 2 retries
 # above is too tight for it and risks a false-negative timeout on a request
 # that actually succeeds server-side. post_multipart defaults to this
 # instead; callers can still override.
-MIGRATE_TIMEOUT = httpx.Timeout(connect=3.0, read=60.0, write=30.0, pool=60.0)
+MIGRATE_TIMEOUT = httpx.Timeout(
+    connect=3.0,
+    read=60.0,
+    write=30.0,
+    pool=60.0,
+)
 
 # mTLS(status): client-side is wired below, gated on settings.MTLS_ENABLED —
 # see app/config.py. Two things still block turning it on for real: Member 3
@@ -30,6 +40,14 @@ MIGRATE_TIMEOUT = httpx.Timeout(connect=3.0, read=60.0, write=30.0, pool=60.0)
 # handlers, so enforcement here is CA-trust-only (any cert signed by our CA
 # is accepted), not per-identity. See the mTLS plan notes for why that's a
 # deliberate scope call, not an oversight.
+#
+# NOTE: Member 3's branch (member3-security-trust) independently made mTLS
+# unconditional here — cert=(...)/verify=... passed on every call with no
+# flag. Verified that breaks node-agent outright: no CA cert exists
+# anywhere in the repo yet, so httpx.AsyncClient(...) raises FileNotFoundError
+# at construction, unhandled, killing the heartbeat/announce/scheduler
+# background tasks on their first tick. Keeping the flag-gated version below
+# instead — see the integration plan for the full reasoning.
 
 _ssl_context: Union[ssl.SSLContext, bool, None] = None
 
@@ -55,23 +73,42 @@ async def post_json(url: str, json_body: dict) -> Optional[dict]:
                 resp.raise_for_status()
                 return resp.json()
             except (httpx.HTTPError, ValueError) as exc:
-                logger.warning("POST %s failed (attempt %d/%d): %s", url, attempt, MAX_ATTEMPTS, exc)
+                logger.warning(
+                    "POST %s failed (attempt %d/%d): %s",
+                    url,
+                    attempt,
+                    MAX_ATTEMPTS,
+                    exc,
+                )
+
     return None
 
 
 async def post_multipart(
-    url: str, files: dict, data: dict, timeout: httpx.Timeout = MIGRATE_TIMEOUT
+    url: str,
+    files: dict,
+    data: dict,
+    timeout: httpx.Timeout = MIGRATE_TIMEOUT,
 ) -> Optional[dict]:
     async with httpx.AsyncClient(timeout=timeout, verify=_get_ssl_context()) as client:
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
-                resp = await client.post(url, files=files, data=data)
+                resp = await client.post(
+                    url,
+                    files=files,
+                    data=data,
+                )
                 resp.raise_for_status()
                 return resp.json()
             except (httpx.HTTPError, ValueError) as exc:
                 logger.warning(
-                    "POST %s (multipart) failed (attempt %d/%d): %s", url, attempt, MAX_ATTEMPTS, exc
+                    "POST %s (multipart) failed (attempt %d/%d): %s",
+                    url,
+                    attempt,
+                    MAX_ATTEMPTS,
+                    exc,
                 )
+
     return None
 
 
@@ -83,5 +120,12 @@ async def get_json(url: str) -> Optional[dict]:
                 resp.raise_for_status()
                 return resp.json()
             except (httpx.HTTPError, ValueError) as exc:
-                logger.warning("GET %s failed (attempt %d/%d): %s", url, attempt, MAX_ATTEMPTS, exc)
+                logger.warning(
+                    "GET %s failed (attempt %d/%d): %s",
+                    url,
+                    attempt,
+                    MAX_ATTEMPTS,
+                    exc,
+                )
+
     return None
