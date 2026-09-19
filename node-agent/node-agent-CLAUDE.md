@@ -45,10 +45,19 @@ not a rewrite.
 - Run container: `docker run --env-file .env -p 8000:8000 node-agent`
 
 ## Testing checklist before calling anything "done"
-- [ ] Two nodes on separate VMs register and heartbeat, real latency logged
-- [ ] A container migrates A -> B and keeps serving requests after
-- [ ] Killing the leader process triggers re-election within the timeout
-- [ ] All of the above pass using only the stubs above
+- [x] Two nodes on separate VMs register and heartbeat, real latency logged
+      (re-verified 2026-09-19 against `7cb0336` on the real 3-VM AWS
+      deployment — see `deploy/README.md`; latency 15-23ms tailnet RTT)
+- [x] A container migrates A -> B and keeps serving requests after
+      (re-verified 2026-09-19: `migration-demo` edge1 -> edge2, confirmed
+      gone from edge1, running on edge2)
+- [x] Killing the leader process triggers re-election within the timeout
+      (re-verified 2026-09-19: stopped edge3 (leader) -> edge2 elected
+      within one ~2s poll; restarted edge3 -> reclaimed leadership within
+      one ~3s poll)
+- [x] All of the above pass using only the stubs above (verified above
+      against the local stubs; real advisor/trust-service/coordinator
+      deployment is tracked separately, see root status board)
 
 ## Failure points I've been told to watch for
 - Don't change a field name in the shared stats schema without updating root
@@ -91,24 +100,35 @@ to exactly one volume per managed container, on purpose:
 - Keep endpoint handlers thin — business logic (scoring thresholds, election logic)
   goes in separate modules, not inline in the FastAPI route functions.
 
-## mTLS: known, deliberate limitation (not an oversight)
+## mTLS + CN-check (2026-09-19: closed the gap below)
 
-`MTLS_ENABLED=true` gives real mutual TLS — every inter-service call
-requires and verifies a cert signed by the shared CA
-(`shared/certs/ca.crt`, issued via `scripts/issue_certs.py`). What it does
-**not** do: check that a cert's CN matches the caller's claimed `node_id`.
-Enforcement is CA-trust-only (any cert our CA signed is accepted), not
-per-identity.
+`MTLS_ENABLED=true` gives real mutual TLS, now including the per-request
+CN check that used to be missing: a caller's claimed `node_id` (in
+`/register`, `/heartbeat`, `/election`, `/coordinator`'s request bodies)
+must match the CN of the cert it actually presented, or the request is
+rejected with 403 (`app/deps.py:require_cn_matches`).
 
-Why: uvicorn's default ASGI transport doesn't expose the peer certificate
-to route handlers (verified empirically — `request.scope["extensions"]` is
-empty on a real mTLS connection). Adding the CN check would mean writing a
-custom uvicorn/asyncio Protocol, real untested infrastructure, under a
-tight pre-review deadline. Decided against building it right now — CA-trust
-is still a real security boundary (verified live: a request with no cert,
-or a cert from an unrelated CA, is rejected at the TLS handshake before any
-route code runs), just not the full per-request identity check
-CONTRACT.md's mTLS section describes. See the `# TODO(mTLS-CN-check)`
-comments at the exact `ssl_cert_reqs=ssl.CERT_REQUIRED` call sites in
-`main.py`, `advisor/app.py`, `trust-service/app.py`, `coordinator/app.py`
-for where this would extend, not replace, the existing setup.
+The handshake itself moved out of uvicorn and into an **nginx sidecar**
+in front of each service (`deploy/nginx.conf`, compose profile `"mtls"`)
+— uvicorn's default ASGI transport doesn't expose the peer cert to route
+handlers (confirmed empirically), so nginx terminates the mTLS connection
+and forwards the verified CN as `X-SSL-Client-CN`, which
+`app/deps.py:get_verified_cn` reads. Same pattern applied to
+`advisor`/`trust-service`/`coordinator` (their own `deploy/nginx.conf` +
+a `require_cn_matches` in each `app.py`) — see
+`deploy/edge1-services/docker-compose.yml`.
+
+Each node-agent EC2 instance needs **its own** cert (CN = its own
+`node_id`) — `node-agent/certs/` is gitignored and instance-local by
+design, generated on that host with
+`python scripts/issue_certs.py --node-id <that instance's node_id> --out-dir node-agent/certs`,
+never copied between instances (a shared cert would defeat the CN check
+entirely — this was an actual bug caught before deploy, see
+`scripts/issue_certs.py`'s comment on why `ALL_IDENTITIES` excludes
+node-agent).
+
+`/trust/report`'s `node_id` is deliberately **not** CN-checked — nothing
+in this codebase calls it yet, and it's genuinely ambiguous whether it's
+self-reported or third-party-reported; enforcing self-match here would be
+a guess that could silently break the intended use. Flagged for whoever
+wires it up.

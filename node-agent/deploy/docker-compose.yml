@@ -10,6 +10,16 @@
 #   docker compose --profile edge1 up -d --build
 # A plain `docker compose up -d --build` (no profile) on any node starts
 # only node-agent, which is what edge2/edge3 want.
+#
+# mTLS + CN-check (profile "mtls"): nginx terminates the mTLS handshake
+# and forwards the verified client cert's CN so node-agent can check it
+# against a caller's claimed node_id (app/deps.py:require_cn_matches).
+# Before enabling: set MTLS_ENABLED=true, HOST=127.0.0.1, PORT=8001 in
+# ../.env (node-agent must only be reachable through nginx, not directly),
+# and generate this instance's own cert — one node_id per instance, NOT
+# a shared certs/ dir (see node-agent-CLAUDE.md's mTLS section):
+#   python ../../scripts/issue_certs.py --node-id <this-instance's node_id> --out-dir ../certs
+# Then: docker compose --profile mtls up -d --build
 services:
   node-agent:
     build: ..
@@ -28,6 +38,16 @@ services:
       # scripts/generate_dev_certs.py for now; swap in Member 3's real
       # per-node certs here later, same mount.
       - ../certs:/app/certs:ro
+      # CA_CERT_PATH defaults to ../shared/certs/ca.crt, i.e.
+      # /shared/certs/ca.crt relative to WORKDIR /app — this is what makes
+      # that path actually resolve inside the container. Needed for
+      # node-agent's OUTBOUND mTLS calls (app/clients.py validating the
+      # advisor/trust-service/coordinator/peer certs it receives), not
+      # just the inbound side nginx already handles. Without this mount,
+      # every outbound call fails as soon as MTLS_ENABLED=true, silently
+      # (was never caught before because mTLS was never live on a real
+      # deployment until now).
+      - ../../shared/certs:/shared/certs:ro
     network_mode: host
     restart: unless-stopped
 
@@ -49,3 +69,18 @@ services:
     network_mode: host
     restart: unless-stopped
     profiles: ["edge1"]
+
+  # mTLS termination sidecar — see the profile note above. Binds this
+  # instance's real port 8000 (node-agent itself moves to 127.0.0.1:8001
+  # via ../.env when this profile is used), so it's still the tailnet's
+  # only entry point to this node, unchanged from the non-mTLS setup.
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../certs:/certs:ro
+      - ../../shared/certs:/ca:ro
+    network_mode: host
+    depends_on: [node-agent]
+    restart: unless-stopped
+    profiles: ["mtls"]

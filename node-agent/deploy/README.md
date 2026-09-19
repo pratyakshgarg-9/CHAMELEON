@@ -91,6 +91,44 @@ curl http://<any-tailscale-ip>:8000/neighbors   # latency_ms = real inter-VM RTT
 curl http://<any-tailscale-ip>:8000/leader      # should converge to one node
 ```
 
+## Verification results (2026-09-19, current `main` + mTLS/CN-check live)
+
+Re-verified everything below against current code (12 commits ahead of
+the 2026-08-28 run — stateful migration, mTLS mechanism, coordinator
+escalation, an election node_id-sort fix), this time with
+`MTLS_ENABLED=true` and CN-check enforced end to end, plus the real
+advisor/trust-service/coordinator deployed to edge1 (`deploy/edge1-services/`,
+replacing the stubs):
+
+- **Convergence over real mTLS**: all 3 nodes registered/heartbeat with
+  each other entirely over mutual TLS, real measured `latency_ms` 12-23ms
+  (Tailscale direct or near-direct this run). `/neighbors` and `/leader`
+  confirmed via `curl --cert/--key/--cacert`.
+- **Migration over real mTLS**: `migration-demo` moved edge1 → edge2 via
+  `/migrate-out`, confirmed gone from edge1 and running on edge2.
+- **Re-election**: stopped edge3 (leader) — edge1/edge2 converged on
+  edge2 within one ~3s poll; restarting edge3 reclaimed leadership within
+  one further poll.
+- **CN-check enforcement, live**: a `/register` claiming a `node_id` that
+  doesn't match the presenting cert's CN → 403; matching → 200. Same
+  confirmed on trust-service's `/trust/score/{node_id}`, coordinator's
+  `/coordinator/register`, and advisor's `/recommend`.
+- **Real service integration**: node-agent's `/stats` reflects
+  trust-service's actual default (`trust_score: 0.5`), not the stub's
+  hardcoded `1.0` — confirms it's genuinely talking to the real service.
+- **Memory headroom on edge1** (t3.micro, 914MB): node-agent + 3 real
+  services + 4 nginx sidecars together use ~185MB — comfortable.
+
+To bring this mode up from a fresh instance: set `MTLS_ENABLED=true`,
+`HOST=127.0.0.1`, `PORT=8001` in `.env`, switch `SELF_URL` and every
+`neighbors.yaml`/`ADVISOR_URL`/`TRUST_URL`/`COORDINATOR_URL` entry to
+`https://`, issue this instance's own cert (see `docker-compose.yml`'s
+`mtls` profile comment), then
+`docker compose --profile mtls up -d --build`. On edge1, also
+`cd ../../deploy/edge1-services && docker compose --profile mtls up -d --build`
+for the real advisor/trust-service/coordinator (needs their own certs
+issued too, and a `.env` there per `.env.example`).
+
 ## Verification results (2026-08-28)
 
 Full pipeline tested live against the 3 real instances above (genuinely
@@ -134,14 +172,39 @@ Two real bugs found and fixed during this deployment (both now in
   allow direct connections if that matters later.
 - Port 8000 (node-agent) is intentionally **not** opened in the AWS
   security group — all inter-node traffic goes over the tailnet.
-- mTLS (per `/shared/certs/README_2.md`) is still not live on these
-  instances — traffic between nodes is plain HTTP, riding on Tailscale's own
-  WireGuard encryption. The mechanism itself is now built and tested
-  (`MTLS_ENABLED` in `.env`, see `node-agent/README.md`), but turning it on
-  here still needs Member 3's real per-node certs — she hasn't issued any
-  yet. `docker-compose.yml`'s `../certs` mount is ready for them, or for
-  `scripts/generate_dev_certs.py` output if you want to test the mechanism
-  against these real VMs before then.
+- mTLS + CN-check is now **live on these instances** (2026-09-19, via the
+  `mtls` compose profile) — traffic between nodes and to the real
+  advisor/trust-service/coordinator (also now deployed to edge1,
+  replacing the old stubs — see `deploy/edge1-services/`) is real mutual
+  TLS with per-request identity verification, not just Tailscale's own
+  WireGuard encryption. See `node-agent-CLAUDE.md`'s mTLS section for the
+  mechanism (nginx sidecar terminating the handshake + forwarding the
+  verified CN).
+
+  Bugs found and fixed getting this live on real instances (none of these
+  showed up in local/dev testing, same pattern as the migration bugs
+  above):
+  - **nginx:alpine doesn't recognize `$ssl_client_s_dn_cn`** ("unknown
+    variable", crash loop) — extract the CN from `$ssl_client_s_dn` via a
+    `map` block instead (see `nginx.conf`).
+  - **`client_max_body_size` defaults to 1m** — rejected every real
+    `/migrate-out` image transfer with 413; set to unlimited on
+    node-agent's nginx.
+  - **Python's default SSL context does hostname/IP verification** —
+    every peer call failed with `CERTIFICATE_VERIFY_FAILED` because our
+    certs' identity is `node_id` (CN), not a SAN for the peer's Tailscale
+    IP. Fixed with `ctx.check_hostname = False` in `app/clients.py` —
+    identity is verified a different way (CA-trust + the server-side CN
+    check), deliberately not tied to network address.
+  - **`SELF_URL`/`neighbors.yaml`/`ADVISOR_URL`/`TRUST_URL`/
+    `COORDINATOR_URL` must all use `https://`**, not `http://` — httpx
+    only applies the mTLS context to `https://` requests; an `http://`
+    URL silently skips TLS entirely regardless of `MTLS_ENABLED`.
+  - **`CA_CERT_PATH`'s default (`../shared/certs/ca.crt`, relative to
+    `/app`) was never actually mounted into the node-agent container** —
+    only the node's own cert was. Outbound calls need the CA cert too, to
+    validate the certs presented by whatever they call; added a
+    `../../shared/certs:/shared/certs:ro` mount.
 
 ## Cost note
 

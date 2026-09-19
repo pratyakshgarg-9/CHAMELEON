@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, Depends
 
 from app.config import settings
-from app.deps import get_election_state, get_registry
+from app.deps import get_election_state, get_registry, get_verified_cn, require_cn_matches
 from app.election import ElectionState, start_election
 from app.models import (
     CoordinatorRequest,
@@ -24,7 +24,9 @@ async def election(
     body: ElectionRequest,
     registry: PeerRegistry = Depends(get_registry),
     state: ElectionState = Depends(get_election_state),
+    verified_cn: str | None = Depends(get_verified_cn),
 ):
+    require_cn_matches(body.from_node_id, verified_cn)
     # Bully protocol: reply immediately (this node is alive and higher-ID,
     # so the caller backs off), then run our own election independently —
     # fire-and-forget, not awaited, so the response isn't held up by it.
@@ -37,7 +39,9 @@ async def coordinator(
     body: CoordinatorRequest,
     registry: PeerRegistry = Depends(get_registry),
     state: ElectionState = Depends(get_election_state),
+    verified_cn: str | None = Depends(get_verified_cn),
 ):
+    require_cn_matches(body.leader_node_id, verified_cn)
     state.current_leader = body.leader_node_id
     # A coordinator announcement is itself fresh evidence the leader is
     # alive — without this, the staleness check in check_leader_liveness

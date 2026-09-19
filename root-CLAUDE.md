@@ -78,12 +78,25 @@ Response: `{"node_id": "...", "trust_score": 0.92, "last_updated": "...", "flags
 - [x] `/trust-service` real service exists — merged into `main` from
       `member3-security-trust`, verified live (2026-09-06); `/coordinator`
       skeleton also merged
-- [x] mTLS wired and verified live across all 4 services (2026-09-06) — from
-      one shared CA (`scripts/issue_certs.py`) generated ahead of the review
-      deadline, not Member 3's originally-planned per-node CSR exchange
-      (documented trade-off, see `/shared/CONTRACT.md`'s Auth section and
-      `node-agent/node-agent-CLAUDE.md`). Enforcement is CA-trust-only — no
-      per-request CN-to-`node_id` check yet, same place those docs explain
+- [x] mTLS wired across all 4 services, now **including** the per-request
+      CN-to-`node_id` check (2026-09-19) via an nginx sidecar terminating
+      the handshake in front of each service — see
+      `node-agent/node-agent-CLAUDE.md`'s mTLS section for the mechanism.
+      Certs re-issued with 180-day validity (`scripts/issue_certs.py`,
+      expires ~2027-03) from one shared CA, still the deadline-driven
+      trade-off vs. Member 3's originally-planned per-node CSR exchange
+      (`/shared/CONTRACT.md`'s Auth section)
+- [x] node-agent's 3-VM AWS deployment (`ap-south-1`, Tailscale mesh)
+      re-verified live against current `main` (2026-09-19) — register/
+      heartbeat with real latency, migration, leader re-election all
+      confirmed on the real instances, not just locally
+- [x] Real `advisor`/`trust-service`/`coordinator` deployed live to AWS
+      (2026-09-19, on edge1, replacing the `advisor-stub`/`trust-stub`)
+      — full 4-service system verified together over real mTLS +
+      CN-check, not stubs. See `node-agent/deploy/README.md`'s
+      2026-09-19 verification results and `deploy/edge1-services/`.
+      Instances are stopped between sessions to control AWS cost — start
+      with the instance IDs in that same README before a live demo.
 
 ## When in doubt
 If a task would require changing anything in this file's contract section, stop and

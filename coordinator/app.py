@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 
 
 app = FastAPI(
@@ -17,9 +17,24 @@ app = FastAPI(
 # /shared/CONTRACT.md's mTLS section for the CA-trust-only scope this
 # implements.
 MTLS_ENABLED = os.environ.get("MTLS_ENABLED", "false").lower() == "true"
-CA_CERT_PATH = os.environ.get("CA_CERT_PATH", "../shared/certs/ca.crt")
-SERVER_CERT_PATH = os.environ.get("SERVER_CERT_PATH", "./certs/node.crt")
-SERVER_KEY_PATH = os.environ.get("SERVER_KEY_PATH", "./certs/node.key")
+BIND_HOST = os.environ.get("HOST", "0.0.0.0")
+BIND_PORT = int(os.environ.get("PORT", "9000"))
+
+
+def require_cn_matches(claimed_node_id: Any, request: Request) -> None:
+    """See advisor/app.py's twin of this function for the full rationale.
+    claimed_node_id is None when the payload dict simply didn't include
+    that key — left unenforced here (a missing/malformed field is a
+    validation problem, not an identity mismatch); it'll surface as a
+    KeyError/None downstream instead of a misleading 403.
+    """
+    if not MTLS_ENABLED or claimed_node_id is None:
+        return
+    verified_cn = request.headers.get("X-SSL-Client-CN") or None
+    if verified_cn is None:
+        raise HTTPException(403, "mTLS enabled but no verified client CN present")
+    if verified_cn != claimed_node_id:
+        raise HTTPException(403, f"claimed node_id {claimed_node_id!r} does not match verified cert CN {verified_cn!r}")
 
 
 # -------------------------------------------------------------------
@@ -39,7 +54,8 @@ def health():
 # -------------------------------------------------------------------
 
 @app.post("/coordinator/register")
-def register_region(payload: Dict[str, Any]):
+def register_region(payload: Dict[str, Any], request: Request):
+    require_cn_matches(payload.get("leader_node_id"), request)
     print(
         f"[COORDINATOR] Region registration received: "
         f"{payload}"
@@ -59,7 +75,8 @@ def register_region(payload: Dict[str, Any]):
 # -------------------------------------------------------------------
 
 @app.post("/coordinator/escalate")
-def escalate(payload: Dict[str, Any]):
+def escalate(payload: Dict[str, Any], request: Request):
+    require_cn_matches(payload.get("node_id"), request)
     print(
         f"[COORDINATOR] Escalation received: "
         f"{payload}"
@@ -75,26 +92,11 @@ def escalate(payload: Dict[str, Any]):
 
 
 if __name__ == "__main__":
-    import ssl
-
     import uvicorn
 
-    run_kwargs = {"host": "0.0.0.0", "port": 9000}
-
-    if MTLS_ENABLED:
-        run_kwargs.update(
-            ssl_certfile=SERVER_CERT_PATH,
-            ssl_keyfile=SERVER_KEY_PATH,
-            ssl_ca_certs=CA_CERT_PATH,
-            # CA-trust-only: any cert signed by our CA is accepted. No
-            # per-request check that the cert's CN matches the caller's
-            # claimed node_id — uvicorn's default ASGI transport doesn't
-            # expose the peer certificate to route handlers without a
-            # custom transport. Deferred (time constraint before review,
-            # not an oversight) — see node-agent/node-agent-CLAUDE.md and
-            # /shared/CONTRACT.md for the full note.
-            # TODO(mTLS-CN-check): verify peer cert CN == caller's node_id here.
-            ssl_cert_reqs=ssl.CERT_REQUIRED,
-        )
+    # Plain HTTP here even when MTLS_ENABLED — the nginx sidecar in front
+    # of this process terminates the mTLS handshake (deploy/nginx.conf)
+    # and proxies to us over plain HTTP; see advisor/app.py's twin comment.
+    run_kwargs = {"host": BIND_HOST, "port": BIND_PORT}
 
     uvicorn.run(app, **run_kwargs)

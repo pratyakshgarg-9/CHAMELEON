@@ -3,7 +3,7 @@ from typing import Dict, List
 import os
 import sqlite3
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 
@@ -19,9 +19,24 @@ app = FastAPI(
 # /shared/CONTRACT.md's mTLS section for the CA-trust-only scope this
 # implements.
 MTLS_ENABLED = os.environ.get("MTLS_ENABLED", "false").lower() == "true"
-CA_CERT_PATH = os.environ.get("CA_CERT_PATH", "../shared/certs/ca.crt")
-SERVER_CERT_PATH = os.environ.get("SERVER_CERT_PATH", "./certs/node.crt")
-SERVER_KEY_PATH = os.environ.get("SERVER_KEY_PATH", "./certs/node.key")
+BIND_HOST = os.environ.get("HOST", "0.0.0.0")
+BIND_PORT = int(os.environ.get("PORT", "8200"))
+
+
+def require_cn_matches(claimed_node_id: str, request: Request) -> None:
+    """See advisor/app.py's twin of this function for the full rationale.
+    When MTLS_ENABLED, the nginx sidecar (deploy/nginx.conf) has already
+    terminated the mTLS handshake and forwards the verified client cert's
+    CN as X-SSL-Client-CN; this checks it against the node_id a caller
+    claims to be reporting about itself.
+    """
+    if not MTLS_ENABLED:
+        return
+    verified_cn = request.headers.get("X-SSL-Client-CN") or None
+    if verified_cn is None:
+        raise HTTPException(403, "mTLS enabled but no verified client CN present")
+    if verified_cn != claimed_node_id:
+        raise HTTPException(403, f"claimed node_id {claimed_node_id!r} does not match verified cert CN {verified_cn!r}")
 
 
 # -------------------------------------------------------------------
@@ -133,7 +148,15 @@ def health():
 # -------------------------------------------------------------------
 
 @app.get("/trust/score/{node_id}", response_model=TrustScoreResponse)
-def get_trust_score(node_id: str):
+def get_trust_score(node_id: str, request: Request):
+    # node-agent only ever queries its own trust_score (stats.py:38 always
+    # passes settings.NODE_ID) — a self-lookup, so CN-checking it is safe.
+    # /trust/report below is deliberately NOT CN-checked: its node_id
+    # could plausibly be a caller reporting on itself OR flagging another
+    # node's misbehavior, and nothing in the current codebase calls it yet
+    # to settle which — enforcing self-match here would silently break
+    # third-party reporting if that's the intended use.
+    require_cn_matches(node_id, request)
 
     # Return existing score if we have one
     if node_id in trust_scores:
@@ -255,26 +278,11 @@ def isolate_node(node_id: str):
 
 
 if __name__ == "__main__":
-    import ssl
-
     import uvicorn
 
-    run_kwargs = {"host": "0.0.0.0", "port": 8200}
-
-    if MTLS_ENABLED:
-        run_kwargs.update(
-            ssl_certfile=SERVER_CERT_PATH,
-            ssl_keyfile=SERVER_KEY_PATH,
-            ssl_ca_certs=CA_CERT_PATH,
-            # CA-trust-only: any cert signed by our CA is accepted. No
-            # per-request check that the cert's CN matches the caller's
-            # claimed node_id — uvicorn's default ASGI transport doesn't
-            # expose the peer certificate to route handlers without a
-            # custom transport. Deferred (time constraint before review,
-            # not an oversight) — see node-agent/node-agent-CLAUDE.md and
-            # /shared/CONTRACT.md for the full note.
-            # TODO(mTLS-CN-check): verify peer cert CN == caller's node_id here.
-            ssl_cert_reqs=ssl.CERT_REQUIRED,
-        )
+    # Plain HTTP here even when MTLS_ENABLED — the nginx sidecar in front
+    # of this process terminates the mTLS handshake (deploy/nginx.conf)
+    # and proxies to us over plain HTTP; see advisor/app.py's twin comment.
+    run_kwargs = {"host": BIND_HOST, "port": BIND_PORT}
 
     uvicorn.run(app, **run_kwargs)

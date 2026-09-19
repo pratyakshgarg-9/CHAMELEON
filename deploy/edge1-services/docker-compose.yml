@@ -1,0 +1,81 @@
+# Real advisor/trust-service/coordinator on edge1, replacing the old
+# advisor-stub/trust-stub (node-agent/deploy/docker-compose.yml's "edge1"
+# profile) so the review shows the full 4-service system live, not
+# node-agent talking to stand-ins. Run from this directory:
+#   docker compose up -d --build              (plain HTTP, MTLS_ENABLED=false)
+#   docker compose --profile mtls up -d --build   (nginx-fronted mTLS + CN-check)
+#
+# Before the mtls profile: issue each service's cert (one identity each,
+# unlike node-agent's per-instance certs) —
+#   python ../../scripts/issue_certs.py --node-id advisor --out-dir ../../advisor/certs
+#   python ../../scripts/issue_certs.py --node-id trust-service --out-dir ../../trust-service/certs
+#   python ../../scripts/issue_certs.py --node-id coordinator --out-dir ../../coordinator/certs
+# and set MTLS_ENABLED=true, HOST=127.0.0.1 for all three services below
+# (PORT stays as each service's own 8101/8201/9001 default in that mode —
+# see each app.py's BIND_HOST/BIND_PORT).
+services:
+  advisor:
+    build: ../../advisor
+    environment:
+      - MTLS_ENABLED=${MTLS_ENABLED:-false}
+      - HOST=${ADVISOR_HOST:-0.0.0.0}
+      - PORT=${ADVISOR_PORT:-8100}
+    volumes:
+      - ../../advisor/certs:/app/certs:ro
+    network_mode: host
+    restart: unless-stopped
+
+  trust-service:
+    build: ../../trust-service
+    environment:
+      - MTLS_ENABLED=${MTLS_ENABLED:-false}
+      - HOST=${TRUST_HOST:-0.0.0.0}
+      - PORT=${TRUST_PORT:-8200}
+    volumes:
+      - ../../trust-service/certs:/app/certs:ro
+    network_mode: host
+    restart: unless-stopped
+
+  coordinator:
+    build: ../../coordinator
+    environment:
+      - MTLS_ENABLED=${MTLS_ENABLED:-false}
+      - HOST=${COORDINATOR_HOST:-0.0.0.0}
+      - PORT=${COORDINATOR_PORT:-9000}
+    volumes:
+      - ../../coordinator/certs:/app/certs:ro
+    network_mode: host
+    restart: unless-stopped
+
+  advisor-nginx:
+    image: nginx:alpine
+    volumes:
+      - ../../advisor/deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../advisor/certs:/certs:ro
+      - ../../shared/certs:/ca:ro
+    network_mode: host
+    depends_on: [advisor]
+    restart: unless-stopped
+    profiles: ["mtls"]
+
+  trust-nginx:
+    image: nginx:alpine
+    volumes:
+      - ../../trust-service/deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../trust-service/certs:/certs:ro
+      - ../../shared/certs:/ca:ro
+    network_mode: host
+    depends_on: [trust-service]
+    restart: unless-stopped
+    profiles: ["mtls"]
+
+  coordinator-nginx:
+    image: nginx:alpine
+    volumes:
+      - ../../coordinator/deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../coordinator/certs:/certs:ro
+      - ../../shared/certs:/ca:ro
+    network_mode: host
+    depends_on: [coordinator]
+    restart: unless-stopped
+    profiles: ["mtls"]

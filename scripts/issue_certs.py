@@ -38,11 +38,17 @@ from cryptography.x509.oid import NameOID
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CA_CERT_NAME = "ca.crt"
 CA_KEY_NAME = "ca.key"
-VALID_DAYS = 30
+VALID_DAYS = 180
 
 # Identity -> its own certs/ directory, for the --all convenience path.
+# node-agent is deliberately NOT here: unlike the other three (exactly one
+# instance each), node-agent runs as 3 distinct identities
+# (regA-c1-edge1/2/3), one per EC2 instance — a single shared node-agent
+# cert would let every instance present the same CN, defeating the
+# per-instance CN-check. Issue node-agent's cert separately, once per
+# instance, with its own --node-id/--out-dir (see node-agent/deploy's
+# docker-compose.yml "mtls" profile comment).
 ALL_IDENTITIES = {
-    "regA-c1-edge1": REPO_ROOT / "node-agent" / "certs",
     "advisor": REPO_ROOT / "advisor" / "certs",
     "trust-service": REPO_ROOT / "trust-service" / "certs",
     "coordinator": REPO_ROOT / "coordinator" / "certs",

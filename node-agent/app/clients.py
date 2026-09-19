@@ -59,6 +59,17 @@ def _get_ssl_context() -> Union[ssl.SSLContext, bool]:
         if settings.MTLS_ENABLED:
             ctx = ssl.create_default_context(cafile=settings.CA_CERT_PATH)
             ctx.load_cert_chain(certfile=settings.CLIENT_CERT_PATH, keyfile=settings.CLIENT_KEY_PATH)
+            # Peers are addressed by Tailscale IP, and our certs' identity
+            # is node_id (CN), not a SAN for that IP — hostname/IP
+            # verification would reject every peer regardless of whether
+            # its cert is legitimate. Identity is verified a different
+            # way instead: the CA-signature check below still applies
+            # (only accepts certs our CA signed), and the server side
+            # separately checks the presented CN against the caller's
+            # claimed node_id (app/deps.py:require_cn_matches) — that's
+            # the actual identity check, deliberately not tied to network
+            # address.
+            ctx.check_hostname = False
             _ssl_context = ctx
         else:
             _ssl_context = True

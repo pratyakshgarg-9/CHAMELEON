@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import ssl
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -57,19 +56,20 @@ app.include_router(election.router)
 
 if __name__ == "__main__":
     # Entrypoint (also what the Dockerfile CMD runs) instead of the bare
-    # `uvicorn main:app` CLI, so mTLS settings come from .env like everything
+    # `uvicorn main:app` CLI, so settings come from .env like everything
     # else — no separate flags to keep in sync across local/dev/deploy.
     # tests/conftest.py's TestClient(app) never goes through this path.
+    #
+    # Always plain HTTP here — when MTLS_ENABLED, the mTLS handshake and
+    # CN verification happen in the nginx sidecar in front of this process
+    # (deploy/nginx.conf, "mtls" compose profile), which proxies to us
+    # over plain HTTP on HOST/PORT (set to 127.0.0.1:8001 in that mode, so
+    # nginx is the only way in). Uvicorn doing its own TLS here as well as
+    # nginx doing TLS on the real external port was the old, sidecar-less
+    # setup — replaced because it couldn't do a CN check (uvicorn's
+    # default ASGI transport doesn't expose the peer cert to route
+    # handlers) and doesn't compose with the sidecar's plain-HTTP
+    # proxy_pass anyway.
     import uvicorn
 
-    run_kwargs = {"host": settings.HOST, "port": settings.PORT}
-
-    if settings.MTLS_ENABLED:
-        run_kwargs.update(
-            ssl_certfile=settings.CLIENT_CERT_PATH,
-            ssl_keyfile=settings.CLIENT_KEY_PATH,
-            ssl_ca_certs=settings.CA_CERT_PATH,
-            ssl_cert_reqs=ssl.CERT_REQUIRED,
-        )
-
-    uvicorn.run(app, **run_kwargs)
+    uvicorn.run(app, host=settings.HOST, port=settings.PORT)

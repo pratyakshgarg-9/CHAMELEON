@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from models import CandidateScore, HealthResponse, RecommendRequest, RecommendResponse
@@ -28,9 +28,27 @@ logger = logging.getLogger("chameleon.advisor")
 # cert, not present one). Off by default; see /shared/CONTRACT.md's mTLS
 # section for the CA-trust-only scope this implements.
 MTLS_ENABLED = os.environ.get("MTLS_ENABLED", "false").lower() == "true"
-CA_CERT_PATH = os.environ.get("CA_CERT_PATH", "../shared/certs/ca.crt")
-SERVER_CERT_PATH = os.environ.get("SERVER_CERT_PATH", "./certs/node.crt")
-SERVER_KEY_PATH = os.environ.get("SERVER_KEY_PATH", "./certs/node.key")
+BIND_HOST = os.environ.get("HOST", "0.0.0.0")
+BIND_PORT = int(os.environ.get("PORT", "8100"))
+
+
+def require_cn_matches(claimed_node_id: str, request: Request) -> None:
+    """When MTLS_ENABLED, the nginx sidecar in front of this service (see
+    deploy/nginx.conf) has already terminated the mTLS handshake and
+    forwarded the verified client cert's CN as X-SSL-Client-CN. This
+    checks that CN against the node_id the caller is claiming (here:
+    overloaded_node — the calling node-agent reporting on itself, per
+    CONTRACT.md's /recommend shape). CA-trust-only mTLS (what existed
+    before this check) verifies the caller has *a* cert we trust; this
+    closes the gap of verifying it's *that node's* cert.
+    """
+    if not MTLS_ENABLED:
+        return
+    verified_cn = request.headers.get("X-SSL-Client-CN") or None
+    if verified_cn is None:
+        raise HTTPException(403, "mTLS enabled but no verified client CN present")
+    if verified_cn != claimed_node_id:
+        raise HTTPException(403, f"claimed node_id {claimed_node_id!r} does not match verified cert CN {verified_cn!r}")
 
 app = FastAPI(
     title="CHAMELEON AI Advisor",
@@ -45,7 +63,8 @@ def health() -> HealthResponse:
 
 
 @app.post("/recommend", response_model=RecommendResponse)
-def recommend(request: RecommendRequest) -> RecommendResponse:
+def recommend(request: RecommendRequest, http_request: Request) -> RecommendResponse:
+    require_cn_matches(request.overloaded_node, http_request)
 
     result = score_candidates(
         candidates=request.candidates,
@@ -88,26 +107,14 @@ async def unhandled_exception_handler(request, exc):
 
 
 if __name__ == "__main__":
-    import ssl
-
     import uvicorn
 
-    run_kwargs = {"host": "0.0.0.0", "port": 8100}
-
-    if MTLS_ENABLED:
-        run_kwargs.update(
-            ssl_certfile=SERVER_CERT_PATH,
-            ssl_keyfile=SERVER_KEY_PATH,
-            ssl_ca_certs=CA_CERT_PATH,
-            # CA-trust-only: any cert signed by our CA is accepted. No
-            # per-request check that the cert's CN matches the caller's
-            # claimed node_id — uvicorn's default ASGI transport doesn't
-            # expose the peer certificate to route handlers without a
-            # custom transport. Deferred (time constraint before review,
-            # not an oversight) — see node-agent/node-agent-CLAUDE.md and
-            # /shared/CONTRACT.md for the full note.
-            # TODO(mTLS-CN-check): verify peer cert CN == caller's node_id here.
-            ssl_cert_reqs=ssl.CERT_REQUIRED,
-        )
+    # host/port are plain HTTP even when MTLS_ENABLED — the mTLS handshake
+    # itself now happens in the nginx sidecar in front of this process
+    # (see deploy/nginx.conf), not in uvicorn directly. BIND_HOST/BIND_PORT
+    # default to 0.0.0.0:8100 (today's behavior) for the no-sidecar path;
+    # set HOST=127.0.0.1/PORT=8101 in the environment when nginx fronts
+    # this service, so only the sidecar can reach it.
+    run_kwargs = {"host": BIND_HOST, "port": BIND_PORT}
 
     uvicorn.run(app, **run_kwargs)
