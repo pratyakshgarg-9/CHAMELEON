@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from app.clients import post_json
+from app.clients import get_json, post_json
 from app.config import settings
 from app.neighbors import PeerRegistry
 from app.node_id import sort_key
@@ -17,14 +17,35 @@ class ElectionState:
         self.election_in_progress: bool = False
 
 
-def _cluster_peers(registry: PeerRegistry) -> list:
+async def _cluster_peers(registry: PeerRegistry) -> list:
     """Peers in this node's own region+cluster — Bully election is scoped
     'within a regional cluster' per node-agent-CLAUDE.md. Only peers that
     have actually /register'ed are considered (that's how we learn their
     region/cluster) — a statically-configured-but-never-seen neighbor can't
     be reliably placed in a cluster.
+
+    Also excludes isolated peers (trust_score=0) — checked here, live,
+    at actual election time (called from start_election/_become_leader,
+    not the liveness tick that runs every few seconds) rather than
+    cached, so the added trust-service round trip stays rare. Fail-open
+    if trust-service doesn't answer: a peer we can't confirm the status
+    of is treated as trusted, same convention stats.py's own
+    _fetch_trust_score already uses, rather than letting trust-service
+    being down block elections entirely.
     """
-    return [p for p in registry.list_all() if p.region == settings.REGION and p.cluster == settings.CLUSTER]
+    candidates = [p for p in registry.list_all() if p.region == settings.REGION and p.cluster == settings.CLUSTER]
+    if not candidates:
+        return []
+    trust_bodies = await asyncio.gather(
+        *(get_json(f"{settings.TRUST_URL}/trust/score/{p.node_id}") for p in candidates)
+    )
+    peers = []
+    for p, trust in zip(candidates, trust_bodies):
+        if trust is not None and (trust.get("trust_score", 1.0) <= 0.0 or "isolated" in (trust.get("flags") or [])):
+            logger.warning("excluding isolated peer %s from election in %s/%s", p.node_id, settings.REGION, settings.CLUSTER)
+            continue
+        peers.append(p)
+    return peers
 
 
 async def start_election(registry: PeerRegistry, state: ElectionState) -> None:
@@ -38,7 +59,7 @@ async def start_election(registry: PeerRegistry, state: ElectionState) -> None:
     state.election_in_progress = True
     try:
         self_key = sort_key(settings.NODE_ID)
-        higher = [p for p in _cluster_peers(registry) if sort_key(p.node_id) > self_key]
+        higher = [p for p in await _cluster_peers(registry) if sort_key(p.node_id) > self_key]
         if higher:
             responses = await asyncio.gather(
                 *(post_json(f"{p.url}/election", {"from_node_id": settings.NODE_ID}) for p in higher)
@@ -65,7 +86,7 @@ async def _become_leader(registry: PeerRegistry, state: ElectionState) -> None:
     # (the startup race described below), or one that joined late, or one
     # that missed the original announcement, all get corrected by the next
     # tick's broadcast instead of staying wrong forever.
-    peers = _cluster_peers(registry)
+    peers = await _cluster_peers(registry)
     if peers:
         await asyncio.gather(
             *(post_json(f"{p.url}/coordinator", {"leader_node_id": settings.NODE_ID}) for p in peers),

@@ -91,6 +91,71 @@ curl http://<any-tailscale-ip>:8000/neighbors   # latency_ms = real inter-VM RTT
 curl http://<any-tailscale-ip>:8000/leader      # should converge to one node
 ```
 
+## Live demo: automatic migration under real load (2026-09-19)
+
+The scheduler -> advisor -> migration pipeline had code and a manual
+recipe (below) but had never actually run unattended before this. Done
+for real on edge1:
+
+```bash
+# Build + run the demo app (see ../../demo-app) — a tiny stdlib HTTP
+# server that persists a request counter to /data/counter.txt
+cd demo-app && docker build -t chameleon/demo-app .
+docker volume create demo-data
+docker run -d --name demo-app -v demo-data:/data -p 5000:5000 chameleon/demo-app
+
+# In node-agent/.env: MANAGED_CONTAINER_NAME=demo-app,
+# CPU_OVERLOAD_THRESHOLD=1, SUSTAINED_POLLS=2 — trips almost immediately
+# on ambient CPU, no artificial load-generation needed at this threshold
+docker compose --profile mtls up -d --force-recreate node-agent
+```
+
+Observed, entirely unattended, within ~20s:
+```
+sustained overload detected (cpu=3.8% mem=71.0%) — asking advisor for a migration target
+triggering migration of demo-app to regA-c1-edge2 (advisor score=0.78: ...)
+migration outcome: {'status': 'migrated', ...}
+```
+`curl`ing the demo app before and after showed both signals at once:
+`served_by` changed to a new container hostname (genuinely a new
+container), and `count` kept climbing from where it left off instead of
+resetting (the volume, and therefore the state, migrated too — the
+stateful-migration path, not just the image).
+
+**Known rough edge, not fixed here** (pre-existing, unrelated to this
+session's changes): the scheduler doesn't know a container it was
+managing has migrated away, and keeps retrying every tick — each attempt
+fails with an unhandled `ContainerNotFound` (caught at the loop level,
+logged, doesn't crash, but spams errors). Clear `MANAGED_CONTAINER_NAME`
+on the source node after a migration, or the receiving node should take
+over managing it, whichever fits the demo. Worth fixing properly later:
+`scheduler_tick` should notice the container it manages is no longer
+local and stop trying, rather than relying on manual cleanup.
+
+## Live verification: trust isolation is real, not just scored (2026-09-19)
+
+The project's pitch is "a trust-scoring layer isolates suspicious
+nodes" — previously true only in the sense that a score existed; nothing
+detected bad behavior, nothing auto-isolated, and nothing actually
+excluded an isolated node from anything. Closed and verified live: a
+throwaway test identity (`regA-c1-test-attacker`, its own CA-signed
+cert, no relation to any real node) attempted to `/register` as
+`regA-c1-edge2` three times using its own cert — CN-check rejected each
+one (403) and auto-reported the attempt to trust-service
+(`node_id: regA-c1-test-attacker, event_type: auth_failure`). After the
+third, `GET /trust/score/regA-c1-test-attacker` showed
+`trust_score: 0, flags: ["auth_failure", "isolated"]` — with no manual
+`/trust/isolate` call anywhere. From there:
+- `advisor`'s `/recommend` disqualified it outright even when it was
+  strictly better than the alternative on every other metric (5% vs 40%
+  CPU/mem) — `"Excluded: regA-c1-test-attacker (isolated (trust_score=0))"`.
+- The same identity attempting to self-declare as leader via
+  `POST /coordinator` was rejected with 403
+  (`"'regA-c1-test-attacker' is isolated and cannot be leader"`).
+- A real node's own standing (edge1's) was confirmed untouched by this —
+  isolation only ever attaches to the identity on the cert that actually
+  misbehaved, not whoever it tried to impersonate.
+
 ## Verification results (2026-09-19, current `main` + mTLS/CN-check live)
 
 Re-verified everything below against current code (12 commits ahead of

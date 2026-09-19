@@ -16,7 +16,7 @@ async def heartbeat(
     registry: PeerRegistry = Depends(get_registry),
     verified_cn: str | None = Depends(get_verified_cn),
 ):
-    require_cn_matches(body.from_node_id, verified_cn)
+    await require_cn_matches(body.from_node_id, verified_cn)
     if body.from_node_id:
         registry.mark_seen(body.from_node_id)
     return HeartbeatResponse(

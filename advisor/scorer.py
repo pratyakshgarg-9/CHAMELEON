@@ -82,6 +82,18 @@ def _score_one(
         (100.0 - candidate.mem_percent) / 100.0
     )
 
+    # An isolated (fully untrusted) candidate is disqualified outright,
+    # not just down-weighted by the 20% trust component below — otherwise
+    # a heavily overloaded cluster could still pick an isolated node as
+    # the "least bad" option, which defeats the point of isolating it.
+    if candidate.trust_score <= 0.0:
+        return ScoredCandidate(
+            node_id=candidate.node_id,
+            score=None,
+            disqualified=True,
+            disqualify_reason="isolated (trust_score=0)",
+        )
+
     # Candidate's latency map should contain the overloaded node.
     latency_ms = candidate.latency_ms.get(overloaded_node)
 

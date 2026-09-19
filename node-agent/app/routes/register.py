@@ -17,7 +17,7 @@ async def register_peer(
     registry: PeerRegistry = Depends(get_registry),
     verified_cn: str | None = Depends(get_verified_cn),
 ):
-    require_cn_matches(body.node_id, verified_cn)
+    await require_cn_matches(body.node_id, verified_cn)
     if not registry.is_configured(body.node_id):
         logger.warning(
             "register from unconfigured node_id=%s (not in neighbors.yaml) — accepted anyway",

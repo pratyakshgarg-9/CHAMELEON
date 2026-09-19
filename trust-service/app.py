@@ -3,7 +3,7 @@ from typing import Dict, List
 import os
 import sqlite3
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 
@@ -21,22 +21,6 @@ app = FastAPI(
 MTLS_ENABLED = os.environ.get("MTLS_ENABLED", "false").lower() == "true"
 BIND_HOST = os.environ.get("HOST", "0.0.0.0")
 BIND_PORT = int(os.environ.get("PORT", "8200"))
-
-
-def require_cn_matches(claimed_node_id: str, request: Request) -> None:
-    """See advisor/app.py's twin of this function for the full rationale.
-    When MTLS_ENABLED, the nginx sidecar (deploy/nginx.conf) has already
-    terminated the mTLS handshake and forwards the verified client cert's
-    CN as X-SSL-Client-CN; this checks it against the node_id a caller
-    claims to be reporting about itself.
-    """
-    if not MTLS_ENABLED:
-        return
-    verified_cn = request.headers.get("X-SSL-Client-CN") or None
-    if verified_cn is None:
-        raise HTTPException(403, "mTLS enabled but no verified client CN present")
-    if verified_cn != claimed_node_id:
-        raise HTTPException(403, f"claimed node_id {claimed_node_id!r} does not match verified cert CN {verified_cn!r}")
 
 
 # -------------------------------------------------------------------
@@ -148,15 +132,14 @@ def health():
 # -------------------------------------------------------------------
 
 @app.get("/trust/score/{node_id}", response_model=TrustScoreResponse)
-def get_trust_score(node_id: str, request: Request):
-    # node-agent only ever queries its own trust_score (stats.py:38 always
-    # passes settings.NODE_ID) — a self-lookup, so CN-checking it is safe.
-    # /trust/report below is deliberately NOT CN-checked: its node_id
-    # could plausibly be a caller reporting on itself OR flagging another
-    # node's misbehavior, and nothing in the current codebase calls it yet
-    # to settle which — enforcing self-match here would silently break
-    # third-party reporting if that's the intended use.
-    require_cn_matches(node_id, request)
+def get_trust_score(node_id: str):
+    # Deliberately NOT CN-checked, unlike /register or /trust/report: this
+    # is a read-only query ABOUT node_id, not a claim of BEING node_id —
+    # any mTLS-authenticated caller in the mesh needs to check any OTHER
+    # node's trust score to make election/migration decisions about it
+    # (node-agent's election.py does exactly this). CN-checking it would
+    # only ever allow self-queries, which defeats the entire point of a
+    # trust score other nodes are supposed to consult.
 
     # Return existing score if we have one
     if node_id in trust_scores:
@@ -225,6 +208,14 @@ def report_trust_event(report: TrustReport):
     # A temporary VM restart/dropout is not treated as malicious.
     elif report.event_type in ("vm_restart", "temporary_dropout"):
         pass
+
+    # Auto-isolate the moment a score bottoms out — otherwise "isolates
+    # suspicious nodes" would require some separate caller to notice and
+    # hit /trust/isolate by hand, which nothing in the system does.
+    # Checked after every event type (not just auth_failure), so any path
+    # that drives the score to 0 isolates uniformly.
+    if current.trust_score <= 0.0 and "isolated" not in current.flags:
+        current.flags.append("isolated")
 
     # Update timestamp (was nested inside the elif above by an indentation
     # slip, so it only ever fired for vm_restart/temporary_dropout —

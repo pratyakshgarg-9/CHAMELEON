@@ -2,6 +2,7 @@ from typing import Optional
 
 from fastapi import HTTPException, Request
 
+from app.clients import post_json
 from app.config import settings
 from app.election import ElectionState
 from app.neighbors import PeerRegistry
@@ -28,15 +29,23 @@ def get_verified_cn(request: Request) -> Optional[str]:
     return request.headers.get("X-SSL-Client-CN") or None
 
 
-def require_cn_matches(claimed_node_id: Optional[str], verified_cn: Optional[str]) -> None:
+async def require_cn_matches(claimed_node_id: Optional[str], verified_cn: Optional[str]) -> None:
     """Enforce that a self-claimed identity in a request body matches the
     cert CN nginx verified for this connection. A no-op when MTLS_ENABLED
     is false, so local/dev/test traffic (no sidecar, no header) is
     unaffected — same gating every other mTLS-dependent code path uses.
+
+    A mismatch (not a missing header — that's a misconfigured sidecar,
+    not an identifiable actor) is also auto-reported to trust-service as
+    an auth_failure against the cert's real identity (verified_cn, not
+    the false claim) — that's what lets repeated impersonation attempts
+    actually drive a node toward isolation instead of just being logged
+    once and forgotten.
     """
     if not settings.MTLS_ENABLED or claimed_node_id is None:
         return
     if verified_cn is None:
         raise HTTPException(403, "mTLS enabled but no verified client CN present")
     if verified_cn != claimed_node_id:
+        await post_json(f"{settings.TRUST_URL}/trust/report", {"node_id": verified_cn, "event_type": "auth_failure"})
         raise HTTPException(403, f"claimed node_id {claimed_node_id!r} does not match verified cert CN {verified_cn!r}")

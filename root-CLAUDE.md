@@ -97,6 +97,23 @@ Response: `{"node_id": "...", "trust_score": 0.92, "last_updated": "...", "flags
       2026-09-19 verification results and `deploy/edge1-services/`.
       Instances are stopped between sessions to control AWS cost — start
       with the instance IDs in that same README before a live demo.
+- [x] "Trust-scoring layer isolates suspicious nodes" is now actually
+      true (2026-09-19), not just a score sitting unused: a CN mismatch
+      auto-reports to trust-service, repeated reports auto-isolate (no
+      manual `/trust/isolate` call needed anywhere), and isolation is
+      enforced in both places it matters — `advisor` hard-disqualifies
+      isolated migration candidates, and node-agent's election rejects
+      an isolated node both as something to defer to *and* as a
+      self-declared leader. Verified live end-to-end, see
+      `node-agent/deploy/README.md`'s "trust isolation is real" section.
+- [x] Automatic overload -> advisor -> migration pipeline demonstrated
+      live and unattended (2026-09-19) against a real tiny HTTP demo app
+      (`/demo-app`), not just curled by hand — including state (a
+      request counter) surviving the move via the existing
+      stateful-migration path. See `node-agent/deploy/README.md`'s
+      "Live demo" section for the exact repro steps before the review,
+      and its noted pre-existing rough edge (scheduler doesn't notice a
+      managed container has already migrated away and keeps retrying).
 
 ## When in doubt
 If a task would require changing anything in this file's contract section, stop and

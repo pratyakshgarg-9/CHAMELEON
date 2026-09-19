@@ -1,5 +1,6 @@
 import pytest
 
+from app import deps
 from app.config import settings
 
 
@@ -57,3 +58,24 @@ def test_coordinator_with_mismatched_leader_cn_is_rejected(client, mtls_on):
         "/coordinator", json={"leader_node_id": "regA-c1-edge9"}, headers={"X-SSL-Client-CN": "regA-c1-edge8"}
     )
     assert resp.status_code == 403
+
+
+def test_cn_mismatch_auto_reports_the_impersonator_to_trust_service(client, mtls_on, monkeypatch):
+    reports = []
+
+    async def fake_post_json(url, body):
+        reports.append((url, body))
+        return {"status": "ok"}
+
+    monkeypatch.setattr(deps, "post_json", fake_post_json)
+
+    resp = client.post(
+        "/register", json=_register_body("regA-c1-edge7"), headers={"X-SSL-Client-CN": "attacker"}
+    )
+    assert resp.status_code == 403
+
+    assert len(reports) == 1
+    url, body = reports[0]
+    assert url == f"{settings.TRUST_URL}/trust/report"
+    # Reports the cert's REAL identity (the impersonator), not the false claim.
+    assert body == {"node_id": "attacker", "event_type": "auth_failure"}

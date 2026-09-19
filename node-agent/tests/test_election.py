@@ -12,14 +12,39 @@ def _registry_with_peers(*peers):
     return registry
 
 
-def test_cluster_peers_filters_by_region_and_cluster():
+@pytest.mark.asyncio
+async def test_cluster_peers_filters_by_region_and_cluster(monkeypatch):
     registry = _registry_with_peers(
         ("regA-c1-edge2", "http://localhost:8001", "regA", "c1"),
         ("regA-c2-edge3", "http://localhost:8002", "regA", "c2"),  # different cluster
         ("regB-c1-edge4", "http://localhost:8003", "regB", "c1"),  # different region
     )
-    peers = election._cluster_peers(registry)
+
+    async def fake_get_json(url):
+        return None  # trust-service unreachable — fail-open (trusted)
+
+    monkeypatch.setattr(election, "get_json", fake_get_json)
+
+    peers = await election._cluster_peers(registry)
     assert [p.node_id for p in peers] == ["regA-c1-edge2"]
+
+
+@pytest.mark.asyncio
+async def test_cluster_peers_excludes_isolated_peer(monkeypatch):
+    registry = _registry_with_peers(
+        ("regA-c1-edge2", "http://localhost:8001", "regA", "c1"),
+        ("regA-c1-edge3", "http://localhost:8002", "regA", "c1"),
+    )
+
+    async def fake_get_json(url):
+        if url.endswith("/trust/score/regA-c1-edge2"):
+            return {"node_id": "regA-c1-edge2", "trust_score": 0.0, "flags": ["isolated"]}
+        return {"node_id": "regA-c1-edge3", "trust_score": 1.0, "flags": []}
+
+    monkeypatch.setattr(election, "get_json", fake_get_json)
+
+    peers = await election._cluster_peers(registry)
+    assert [p.node_id for p in peers] == ["regA-c1-edge3"]
 
 
 @pytest.mark.asyncio
@@ -34,7 +59,11 @@ async def test_start_election_becomes_leader_when_no_higher_peers(monkeypatch):
         announced.append(url)
         return {"status": "ack"}
 
+    async def fake_get_json(url):
+        return None  # trust-service unreachable — fail-open (trusted)
+
     monkeypatch.setattr(election, "post_json", fake_post_json)
+    monkeypatch.setattr(election, "get_json", fake_get_json)
 
     await election.start_election(registry, state)
 
@@ -74,7 +103,11 @@ async def test_start_election_defers_when_higher_peer_alive(monkeypatch):
     async def fake_post_json(url, body):
         return {"status": "ok"}  # higher peer is alive
 
+    async def fake_get_json(url):
+        return None  # trust-service unreachable — fail-open (trusted)
+
     monkeypatch.setattr(election, "post_json", fake_post_json)
+    monkeypatch.setattr(election, "get_json", fake_get_json)
 
     await election.start_election(registry, state)
 
@@ -90,7 +123,11 @@ async def test_start_election_becomes_leader_when_higher_peer_unreachable(monkey
     async def fake_post_json(url, body):
         return None  # unreachable
 
+    async def fake_get_json(url):
+        return None  # trust-service unreachable — fail-open (trusted)
+
     monkeypatch.setattr(election, "post_json", fake_post_json)
+    monkeypatch.setattr(election, "get_json", fake_get_json)
 
     await election.start_election(registry, state)
 
@@ -109,7 +146,11 @@ async def test_start_election_treats_double_digit_node_as_higher(monkeypatch):
     async def fake_post_json(url, body):
         return {"status": "ok"}  # edge10 is alive
 
+    async def fake_get_json(url):
+        return None  # trust-service unreachable — fail-open (trusted)
+
     monkeypatch.setattr(election, "post_json", fake_post_json)
+    monkeypatch.setattr(election, "get_json", fake_get_json)
 
     await election.start_election(registry, state)
 
@@ -240,6 +281,22 @@ def test_coordinator_route_updates_state(client):
 
     leader_resp = client.get("/leader")
     assert leader_resp.json()["leader_node_id"] == "regA-c1-edge2"
+
+
+def test_coordinator_route_rejects_isolated_self_declared_leader(client, monkeypatch):
+    # An isolated node can still try to unilaterally announce itself as
+    # leader (nothing stops it from self-electing when no higher peer
+    # responds) — this is the one place that announcement actually gets
+    # checked and rejected, rather than everyone blindly accepting it.
+    from app.routes import election as election_route
+
+    async def fake_get_json(url):
+        return {"trust_score": 0.0, "flags": ["isolated"]}
+
+    monkeypatch.setattr(election_route, "get_json", fake_get_json)
+
+    resp = client.post("/coordinator", json={"leader_node_id": "regA-c1-edge2"})
+    assert resp.status_code == 403
 
 
 def test_leader_route_reachable(client):
