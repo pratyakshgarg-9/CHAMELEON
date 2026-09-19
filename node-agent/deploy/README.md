@@ -33,19 +33,11 @@ multi-VM deployment. **Status: live and verified (2026-08-28)** — see
   If SSH access changes hands, whoever manages this needs their own device
   added the same way (`sudo tailscale up` on a new node, approve the
   printed link while logged into the personal account).
-- **Advisor/trust stubs**: run as two more services in `docker-compose.yml`
-  (`advisor-stub` on :8100, `trust-stub` on :8200 — same image as
-  node-agent, just a different uvicorn target), gated behind the `edge1`
-  compose profile so only edge1 starts them:
-  ```bash
-  cd ~/chameleon/node-agent/deploy && sudo docker compose --profile edge1 up -d --build
-  ```
-  Both have `restart: unless-stopped`, so they come back on their own after
-  an edge1 reboot — no manual restart needed anymore. (Superseded the
-  earlier native-process/`setsid` approach; if edge1 still has those
-  processes running from an older session, kill them — `pkill -f
-  stubs.advisor_stub` / `pkill -f stubs.trust_stub` — before bringing the
-  compose services up, so nothing fights over ports 8100/8200.)
+- **Advisor/trust/coordinator**: the real services now run on edge1
+  (2026-09-19), not stubs — see `../../deploy/edge1-services/` and the
+  "Verification results" section below. The `edge1` compose profile in
+  `docker-compose.yml` (stubs) still exists but only for local
+  multi-terminal dev now (`../README.md`), not this deployment.
 
 ## Redeploying after a code change
 
@@ -55,8 +47,9 @@ scp -i ~/.ssh/chameleon-nodes.pem <changed files> ubuntu@<ip>:~/chameleon/node-a
 ssh -i ~/.ssh/chameleon-nodes.pem ubuntu@<ip> "cd ~/chameleon/node-agent/deploy && sudo docker compose up -d --build"
 ```
 Or `git pull` on the instance instead of `scp`, once local changes are
-pushed to `origin/main`. On edge1, add `--profile edge1` to also rebuild
-the advisor/trust stub containers.
+pushed to `origin/main`. On edge1, also `cd ../../deploy/edge1-services
+&& sudo docker compose --profile mtls up -d --build` to redeploy the
+real advisor/trust-service/coordinator alongside node-agent.
 
 ## From scratch (if these instances are ever torn down and recreated)
 
@@ -79,9 +72,11 @@ logged into the **personal** Tailscale account, not any institutional
 email), note `tailscale ip -4`, `git clone` the repo, write `.env` +
 `neighbors.yaml` (see `../.env.example` for the field list — set
 `SELF_URL`/`ADVISOR_URL`/`TRUST_URL` to Tailscale IPs, not public IPs),
-then `docker compose up -d --build` from this directory (on whichever
-instance is designated edge1, use `docker compose --profile edge1 up -d
---build` instead, to also start the advisor/trust stubs).
+then `docker compose --profile mtls up -d --build` from this directory
+(see the mTLS section above for the per-instance cert step first; on
+whichever instance is designated edge1, also bring up
+`../../deploy/edge1-services` for the real advisor/trust-service/
+coordinator).
 
 ## Verify
 

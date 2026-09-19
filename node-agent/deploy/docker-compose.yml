@@ -5,11 +5,14 @@
 # SELF_URL should be this host's Tailscale IP (`tailscale ip -4`), not its
 # public AWS IP — inter-node traffic goes over the tailnet.
 #
-# The advisor/trust stubs (profile "edge1") only need to run on the one
-# node acting as the stub host — bring them up there with:
-#   docker compose --profile edge1 up -d --build
+# The advisor/trust stubs (profile "edge1") are superseded on the real
+# AWS deployment as of 2026-09-19 — the real advisor/trust-service/
+# coordinator now run on edge1 instead (see ../../deploy/edge1-services/).
+# The "edge1" profile below still exists for local multi-terminal dev
+# without spinning up the full 4-service stack (see ../README.md), not
+# for the real deployment anymore.
 # A plain `docker compose up -d --build` (no profile) on any node starts
-# only node-agent, which is what edge2/edge3 want.
+# only node-agent, which is what edge2/edge3 (and edge1, now) want.
 #
 # mTLS + CN-check (profile "mtls"): nginx terminates the mTLS handshake
 # and forwards the verified client cert's CN so node-agent can check it
