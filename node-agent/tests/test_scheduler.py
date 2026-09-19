@@ -232,6 +232,43 @@ async def test_attempt_migration_triggers_on_valid_recommendation(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_attempt_migration_handles_container_already_gone(monkeypatch):
+    # Regression test: MANAGED_CONTAINER_NAME already migrated away (e.g.
+    # a previous cycle moved it off this node, and nothing clears the
+    # setting) used to raise ContainerNotFound uncaught here, surfacing
+    # as a full traceback via run_scheduler_loop's generic catch every
+    # single tick. Must fail quietly instead of crashing the tick.
+    monkeypatch.setattr(settings, "MANAGED_CONTAINER_NAME", "my-app")
+    registry = PeerRegistry([NeighborConfig(node_id="regA-c1-edge2", url="http://localhost:9999")])
+
+    async def fake_get_json(url):
+        return {
+            "node_id": "regA-c1-edge2",
+            "timestamp": "2026-08-26T00:00:00Z",
+            "cpu_percent": 10,
+            "mem_percent": 10,
+            "latency_ms": {},
+            "history_load_avg_5m": 10,
+            "trust_score": 1.0,
+        }
+
+    async def fake_post_json(url, body):
+        return {"recommended_node": "regA-c1-edge2", "score": 0.9, "reasoning": "lowest load"}
+
+    monkeypatch.setattr(scheduler, "get_json", fake_get_json)
+    monkeypatch.setattr(scheduler, "post_json", fake_post_json)
+
+    from app.migration import ContainerNotFound
+
+    async def fake_migrate_container(registry_arg, container_name, destination_node):
+        raise ContainerNotFound(container_name)
+
+    monkeypatch.setattr(scheduler, "migrate_container", fake_migrate_container)
+
+    await scheduler._attempt_migration(registry)  # must not raise
+
+
+@pytest.mark.asyncio
 async def test_attempt_migration_escalates_when_no_reachable_neighbors(monkeypatch):
     registry = PeerRegistry([])  # no neighbors at all -> no candidates
 

@@ -34,6 +34,18 @@ class TrustScoreResponse(BaseModel):
     flags: List[str]
     
 class TrustReport(BaseModel):
+    # Deliberately NOT CN-checked (unlike /register): this is inherently
+    # a third-party report, not a self-claim — node-agent's actual caller
+    # (app/deps.py:require_cn_matches) is the node that DETECTED bad
+    # behavior, reporting about the node_id that exhibited it, which are
+    # two different identities by construction. A same-identity check
+    # here would reject every real report node-agent ever sends.
+    # Accepted limitation: any mTLS-authenticated (CA-signed cert) caller
+    # can report any node_id, with no corroboration from other members —
+    # a single compromised or bugged node could falsely tank a healthy
+    # peer's score. Not addressed here; would need multi-reporter
+    # corroboration or a provenance/audit trail to close, out of scope
+    # for this project's timeline.
     node_id: str
     event_type: str
 

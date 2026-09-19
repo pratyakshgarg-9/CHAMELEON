@@ -127,8 +127,11 @@ entirely — this was an actual bug caught before deploy, see
 `scripts/issue_certs.py`'s comment on why `ALL_IDENTITIES` excludes
 node-agent).
 
-`/trust/report`'s `node_id` is deliberately **not** CN-checked — nothing
-in this codebase calls it yet, and it's genuinely ambiguous whether it's
-self-reported or third-party-reported; enforcing self-match here would be
-a guess that could silently break the intended use. Flagged for whoever
-wires it up.
+`/trust/report`'s `node_id` is deliberately **not** CN-checked — resolved
+(2026-09-19), not actually ambiguous: `app/deps.py:require_cn_matches`
+is the real caller, and it reports the node_id that presented a
+mismatched cert, which is never the reporting node's own identity. A
+same-identity check would reject every real report this system sends.
+Accepted limitation instead: any mTLS-authenticated caller can report
+any node_id, with no corroboration — see the comment on
+`trust-service/app.py`'s `TrustReport` model for the full note.

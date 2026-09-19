@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from app.clients import get_json, post_json
 from app.config import settings
-from app.migration import migrate_container
+from app.migration import ContainerNotFound, migrate_container
 from app.models import RecommendResponse, StatsPayload
 from app.neighbors import PeerRegistry
 
@@ -116,7 +116,24 @@ async def _attempt_migration(registry: PeerRegistry) -> None:
         recommendation.score,
         recommendation.reasoning,
     )
-    outcome = await migrate_container(registry, settings.MANAGED_CONTAINER_NAME, recommendation.recommended_node)
+    try:
+        outcome = await migrate_container(registry, settings.MANAGED_CONTAINER_NAME, recommendation.recommended_node)
+    except ContainerNotFound:
+        # MANAGED_CONTAINER_NAME already migrated away (to here, previously
+        # — no code path clears the setting once that happens) or was
+        # otherwise removed. Without this, every future tick re-derives
+        # the same recommendation and re-hits this exact error, each one
+        # surfacing as a full unhandled-exception traceback via
+        # run_scheduler_loop's generic catch — real, if harmless, noise
+        # a live run surfaced. Log once, quietly, and move on; still no
+        # code path to actually stop retrying next cycle, so this is a
+        # noise fix, not a fix for the underlying "doesn't know it no
+        # longer owns the container" gap.
+        logger.warning(
+            "%s is no longer present locally (already migrated or removed) — nothing to migrate this cycle",
+            settings.MANAGED_CONTAINER_NAME,
+        )
+        return
     logger.warning("migration outcome: %s", outcome.model_dump())
 
 
