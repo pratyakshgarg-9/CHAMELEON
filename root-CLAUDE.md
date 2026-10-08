@@ -115,6 +115,13 @@ Response: `{"node_id": "...", "trust_score": 0.92, "last_updated": "...", "flags
       and its noted pre-existing rough edge (scheduler doesn't notice a
       managed container has already migrated away and keeps retrying).
 
+- [x] Live mesh dashboard (2026-10-09, `/dashboard`): one light-theme page
+      with per-node health/CPU/memory, current leader, container placement
+      across nodes and a merged timestamped event log, so the demo no
+      longer needs three scrolling terminals. Runs on edge1, viewed via SSH
+      tunnel; verified live on AWS. See `dashboard/README.md` and
+      `node-agent/deploy/README.md`'s "Live dashboard" section.
+
 ## When in doubt
 If a task would require changing anything in this file's contract section, stop and
 flag it to me instead of just proceeding — that's exactly the kind of silent change

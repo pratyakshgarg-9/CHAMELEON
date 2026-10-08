@@ -47,6 +47,24 @@ services:
     network_mode: host
     restart: unless-stopped
 
+  # Live mesh monitor (see ../../dashboard). A client of every node's mTLS
+  # sidecar, not a server — it binds loopback only, so the page is reached
+  # through an SSH tunnel (ssh -L 8080:127.0.0.1:8080 ...) and no AWS port
+  # needs opening. Needs its own cert:
+  #   python ../../scripts/issue_certs.py --node-id dashboard --out-dir ../../dashboard/certs
+  dashboard:
+    build: ../../dashboard
+    environment:
+      - NODES=${DASHBOARD_NODES:-}
+      - MTLS_ENABLED=${MTLS_ENABLED:-false}
+      - HOST=127.0.0.1
+      - PORT=8080
+    volumes:
+      - ../../dashboard/certs:/app/certs:ro
+      - ../../shared/certs:/shared/certs:ro
+    network_mode: host
+    restart: unless-stopped
+
   advisor-nginx:
     image: nginx:alpine
     volumes:

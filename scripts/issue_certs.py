@@ -52,6 +52,9 @@ ALL_IDENTITIES = {
     "advisor": REPO_ROOT / "advisor" / "certs",
     "trust-service": REPO_ROOT / "trust-service" / "certs",
     "coordinator": REPO_ROOT / "coordinator" / "certs",
+    # Client-only: the dashboard presents this to every node's mTLS sidecar
+    # to read /status; it never serves mTLS itself.
+    "dashboard": REPO_ROOT / "dashboard" / "certs",
 }
 # shared/certs/ca.crt matches node-agent/.env.example's existing
 # CA_CERT_PATH default (../shared/certs/ca.crt) exactly, so every service

@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>CHAMELEON · Mesh Monitor</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f3f5f9; --card: #ffffff; --line: #e4e8ef; --text: #1a2332; --muted: #667085; --faint: #98a2b3;
+  --green: #15803d; --green-bg: #e6f6ec; --green-dot: #22c55e;
+  --red: #b91c1c; --red-bg: #fdecec; --red-dot: #ef4444;
+  --blue: #1d4ed8; --blue-bg: #e8f0fe;
+  --purple: #6d28d9; --purple-bg: #f1ebff;
+  --amber: #a16207; --amber-bg: #fff3d6;
+  --pink: #be185d; --pink-bg: #fde8f1;
+  --cpu: #f5b800; --mem: #ef4444;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+header { display: flex; justify-content: space-between; align-items: center; padding: 14px 28px; background: #fff; border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 12px; }
+.logo { width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff; font-weight: 800; font-size: 20px; display: grid; place-items: center; }
+.brand h1 { margin: 0; font-size: 18px; letter-spacing: .08em; }
+.brand p { margin: 0; color: var(--muted); font-size: 12px; }
+.live { display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; background: var(--green-bg); color: var(--green); font-weight: 600; font-size: 13px; }
+.live .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green-dot); animation: pulse 1.6s infinite; }
+.live.off { background: #eef0f4; color: var(--muted); }
+.live.off .dot { background: var(--faint); animation: none; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(34,197,94,.5); } 70% { box-shadow: 0 0 0 8px rgba(34,197,94,0); } 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); } }
+
+main { padding: 22px 28px 40px; max-width: 1500px; margin: 0 auto; }
+h2 { margin: 0 0 14px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.kpi { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px; }
+.kpi .label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.kpi .value { margin-top: 4px; font-size: 26px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+.kpi .sub { color: var(--muted); font-size: 12px; min-height: 17px; }
+.status-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--faint); flex: none; }
+.s-healthy { color: var(--green); } .s-healthy .status-dot { background: var(--green-dot); }
+.s-degraded, .s-converging { color: var(--amber); } .s-degraded .status-dot, .s-converging .status-dot { background: #f59e0b; }
+.s-re-electing { color: var(--blue); } .s-re-electing .status-dot { background: #3b82f6; animation: blink 1s infinite; }
+.s-offline { color: var(--red); } .s-offline .status-dot { background: var(--red-dot); }
+.s-connecting { color: var(--muted); }
+@keyframes blink { 50% { opacity: .25; } }
+
+.nodes { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 16px; margin-bottom: 18px; }
+.node { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; transition: opacity .4s, box-shadow .4s, border-color .4s; }
+.node.leader { border-color: #b9cffb; box-shadow: 0 0 0 4px var(--blue-bg); }
+.node.down { opacity: .6; filter: grayscale(.55); }
+.node-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+.node-name { font-size: 22px; font-weight: 700; line-height: 1.1; }
+.node-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.badges { display: flex; gap: 6px; align-items: center; }
+.badge, .pill { font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.badge.leader { background: var(--blue-bg); color: var(--blue); }
+.pill.up { background: var(--green-bg); color: var(--green); }
+.pill.down { background: var(--red-bg); color: var(--red); }
+.pill.connecting { background: #eef0f4; color: var(--muted); }
+.down-note { color: var(--red); font-size: 12px; margin: -6px 0 10px; min-height: 0; }
+.down-note:empty { display: none; }
+
+.meter { margin-bottom: 12px; }
+.meter-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--muted); margin-bottom: 5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.meter-top b { font-size: 18px; color: var(--text); letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+.track { position: relative; height: 12px; background: #eff1f5; border-radius: 999px; overflow: hidden; }
+.track::after { content: ""; position: absolute; left: 80%; top: 0; bottom: 0; width: 1px; background: rgba(26,35,50,.18); }
+.fill { height: 100%; width: 0; border-radius: 999px; transition: width .7s ease; }
+.fill.cpu { background: linear-gradient(90deg, #fcd34d, var(--cpu)); }
+.fill.mem { background: linear-gradient(90deg, #fca5a5, var(--mem)); }
+
+.facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0 6px; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.facts div { display: flex; flex-direction: column; }
+.facts span { font-size: 11px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+.facts b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.sect { margin: 12px 0 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.nb { display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: 13px; }
+.nb .d { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.nb .d.up { background: var(--green-dot); } .nb .d.down { background: var(--red-dot); }
+.nb .ms { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.nb .ms.bad { color: var(--red); font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { background: var(--purple-bg); color: var(--purple); border-radius: 8px; padding: 3px 10px; font-weight: 600; font-size: 12.5px; animation: pop .5s ease; }
+.none { color: var(--faint); font-size: 13px; }
+@keyframes pop { from { transform: scale(.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+.lower { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .lower { grid-template-columns: 1fr; } }
+.panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; }
+.panel h2 span { float: right; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--faint); }
+
+.cont { padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; transition: background .6s, border-color .6s; }
+.cont.moved { background: var(--purple-bg); border-color: #cdb8fb; }
+.cont-top { display: flex; justify-content: space-between; align-items: center; }
+.cont-top b { font-size: 15px; }
+.cstate { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
+.cstate.running { background: var(--green-bg); color: var(--green); }
+.cstate.in-transit { background: var(--purple-bg); color: var(--purple); animation: blink 1s infinite; }
+.cstate.node-down { background: var(--red-bg); color: var(--red); }
+.cstate.stopped { background: #eef0f4; color: var(--muted); }
+.cont-where { margin: 8px 0 4px; color: var(--muted); }
+.cont-where .at { background: var(--blue-bg); color: var(--blue); font-weight: 700; padding: 2px 10px; border-radius: 8px; margin-left: 4px; }
+.path { color: var(--muted); font-size: 12px; }
+.path small { color: var(--faint); margin-left: 6px; }
+.empty { color: var(--faint); padding: 14px 0; font-size: 13px; }
+
+.log { max-height: 440px; overflow-y: auto; margin: 0 -8px; padding: 0 8px; }
+.ev { display: grid; grid-template-columns: 74px 118px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid #f0f2f6; }
+.ev:last-child { border-bottom: 0; }
+.ev.fresh { animation: flash 2.5s ease; }
+@keyframes flash { 0% { background: #fff8d6; } 100% { background: transparent; } }
+.ev time { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 12.5px; color: var(--muted); }
+.tag { font-size: 11px; font-weight: 700; padding: 3px 0; border-radius: 7px; text-align: center; letter-spacing: .03em; }
+.t-blue { background: var(--blue-bg); color: var(--blue); } .t-red { background: var(--red-bg); color: var(--red); }
+.t-green { background: var(--green-bg); color: var(--green); } .t-purple { background: var(--purple-bg); color: var(--purple); }
+.t-amber { background: var(--amber-bg); color: var(--amber); } .t-pink { background: var(--pink-bg); color: var(--pink); }
+.t-grey { background: #eef0f4; color: var(--muted); }
+.ev .msg { overflow-wrap: anywhere; }
+.ev .who { color: var(--faint); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><div class="logo">C</div><div><h1>CHAMELEON</h1><p>Edge mesh monitor</p></div></div>
+  <div id="live" class="live off"><span class="dot"></span><span id="liveText">Connecting…</span></div>
+</header>
+
+<main>
+  <section class="kpis">
+    <div class="kpi"><div class="label">Mesh status</div><div class="value" id="kStatus"><span class="status-dot"></span><span>—</span></div><div class="sub" id="kStatusSub"></div></div>
+    <div class="kpi"><div class="label">Leader</div><div class="value" id="kLeader">—</div><div class="sub" id="kLeaderSub"></div></div>
+    <div class="kpi"><div class="label">Nodes online</div><div class="value" id="kNodes">—</div><div class="sub" id="kNodesSub"></div></div>
+    <div class="kpi"><div class="label">Avg. latency</div><div class="value" id="kLat">—</div><div class="sub">between live nodes</div></div>
+    <div class="kpi"><div class="label">Migrations</div><div class="value" id="kMig">0</div><div class="sub">since dashboard started</div></div>
+  </section>
+
+  <section class="nodes" id="nodes"></section>
+
+  <section class="lower">
+    <div class="panel"><h2>Container placement</h2><div id="containers"></div></div>
+    <div class="panel"><h2>Event log <span id="evCount"></span></h2><div class="log" id="events"></div></div>
+  </section>
+</main>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+const STATUS = {
+  healthy: ["Healthy", "all nodes agree on the leader"], degraded: ["Degraded", ""], converging: ["Syncing", "nodes still agreeing on a leader"],
+  "re-electing": ["Re-electing", "no live leader — election running"], offline: ["Offline", "no node reachable"], connecting: ["Connecting", ""],
+};
+const EVENT_TYPES = {
+  leader_selected: ["Leader", "blue"], leader_elected: ["Election", "blue"], leader_lost: ["Leader lost", "red"],
+  node_down: ["Node down", "red"], node_up: ["Node up", "green"],
+  migration_started: ["Migrating", "purple"], migration_completed: ["Migrated", "purple"], migration_failed: ["Migration failed", "red"],
+  overload_detected: ["Overload", "amber"], cn_rejected: ["Security", "pink"], peer_isolated: ["Isolated", "pink"],
+};
+const CSTATE = { running: "running", "in-transit": "migrating…", "node-down": "node down", stopped: "stopped" };
+
+const cards = {};
+const prevNode = {};
+const movedUntil = {};
+let seenEvents = null;
+let evSignature = "";
+let lastOk = 0;
+
+const pct = v => (v == null ? "—" : Math.round(v) + "%");
+const ms = v => (v == null ? "—" : (v >= 100 ? Math.round(v) : v.toFixed(1)) + " ms");
+function uptime(s) {
+  if (s == null) return "—";
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m";
+  return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
+}
+const clock = ts => new Date(ts).toLocaleTimeString([], { hour12: false });
+
+function ensureCard(n) {
+  if (cards[n.node_id]) return cards[n.node_id];
+  const el = document.createElement("article");
+  el.className = "node";
+  el.innerHTML = `
+    <div class="node-head">
+      <div><div class="node-name"></div><div class="node-sub"></div></div>
+      <div class="badges"><span class="badge leader" hidden>★ LEADER</span><span class="pill"></span></div>
+    </div>
+    <div class="down-note"></div>
+    <div class="meter"><div class="meter-top"><span>CPU</span><b class="cpu-v">—</b></div><div class="track"><div class="fill cpu"></div></div></div>
+    <div class="meter"><div class="meter-top"><span>Memory</span><b class="mem-v">—</b></div><div class="track"><div class="fill mem"></div></div></div>
+    <div class="facts">
+      <div><span>5-min avg</span><b class="f-avg">—</b></div>
+      <div><span>Uptime</span><b class="f-up">—</b></div>
+      <div><span>Trust</span><b class="f-trust">—</b></div>
+    </div>
+    <div class="sect">Neighbors</div><div class="neighbors"></div>
+    <div class="sect">Containers</div><div class="chips"></div>`;
+  $("#nodes").appendChild(el);
+  const q = s => $(s, el);
+  return (cards[n.node_id] = {
+    el, name: q(".node-name"), sub: q(".node-sub"), leader: q(".badge.leader"), pill: q(".pill"), down: q(".down-note"),
+    cpuV: q(".cpu-v"), cpuF: q(".fill.cpu"), memV: q(".mem-v"), memF: q(".fill.mem"),
+    avg: q(".f-avg"), up: q(".f-up"), trust: q(".f-trust"), nb: q(".neighbors"), ch: q(".chips"), chKey: null,
+  });
+}
+
+function renderNode(n) {
+  const c = ensureCard(n);
+  c.el.classList.toggle("down", n.status === "down");
+  c.el.classList.toggle("leader", n.is_leader);
+  c.name.textContent = n.short;
+  c.sub.textContent = [n.region, n.cluster].filter(Boolean).join(" · ") || n.node_id;
+  c.leader.hidden = !n.is_leader;
+  c.pill.className = "pill " + n.status;
+  c.pill.textContent = n.status === "up" ? "UP" : n.status === "down" ? "DOWN" : "…";
+  c.down.textContent = n.status === "down" ? (n.down_for != null ? "No response for " + uptime(n.down_for) : "No response") : "";
+  c.cpuV.textContent = pct(n.cpu); c.cpuF.style.width = (n.cpu ?? 0) + "%";
+  c.memV.textContent = pct(n.mem); c.memF.style.width = (n.mem ?? 0) + "%";
+  c.avg.textContent = pct(n.load_avg_5m);
+  c.up.textContent = uptime(n.uptime_seconds);
+  c.trust.textContent = n.trust == null ? "—" : n.trust.toFixed(2);
+  c.trust.style.color = n.trust != null && n.trust < 0.2 ? "var(--red)" : "";
+  c.nb.innerHTML = n.neighbors.length
+    ? n.neighbors.map(p => {
+        const d = p.up === true ? "up" : p.up === false ? "down" : "";
+        const lat = p.up === false ? `<span class="ms bad">down</span>` : `<span class="ms">${ms(p.latency_ms)}</span>`;
+        return `<div class="nb"><span class="d ${d}"></span>${esc(p.short)}${lat}</div>`;
+      }).join("")
+    : `<span class="none">${n.status === "up" ? "none yet" : "—"}</span>`;
+  const key = n.containers.join("|");
+  if (key !== c.chKey) {
+    c.chKey = key;
+    c.ch.innerHTML = n.containers.length ? n.containers.map(x => `<span class="chip">${esc(x)}</span>`).join("") : `<span class="none">none</span>`;
+  }
+}
+
+function renderKpis(cl, nodes) {
+  const [label, sub] = STATUS[cl.status] || [cl.status, ""];
+  const k = $("#kStatus");
+  k.className = "value s-" + cl.status;
+  k.lastElementChild.textContent = label;
+  const down = cl.nodes_total - cl.nodes_up;
+  $("#kStatusSub").textContent = cl.status === "degraded" ? down + " node" + (down > 1 ? "s" : "") + " down" : sub;
+  const lead = nodes.find(n => n.node_id === cl.leader);
+  $("#kLeader").textContent = lead ? lead.short : cl.previous_leader ? "—" : "—";
+  $("#kLeaderSub").textContent = lead ? `agreed by ${cl.agree} of ${cl.nodes_up} online` : cl.previous_leader ? "lost: " + cl.previous_leader.split("-").pop() : "";
+  $("#kNodes").textContent = `${cl.nodes_up} / ${cl.nodes_total}`;
+  $("#kNodesSub").textContent = cl.nodes_up === cl.nodes_total ? "all reporting" : "";
+  $("#kLat").textContent = ms(cl.avg_latency_ms);
+  $("#kMig").textContent = cl.migrations;
+}
+
+function renderContainers(list) {
+  const box = $("#containers");
+  if (!list.length) { box.innerHTML = `<div class="empty">No application containers yet. Anything started with <code>docker run</code> on a node shows up here and is followed as it moves.</div>`; return; }
+  const now = Date.now();
+  box.innerHTML = list.map(c => {
+    if (prevNode[c.name] && prevNode[c.name] !== c.node) movedUntil[c.name] = now + 6000;
+    prevNode[c.name] = c.node;
+    const moved = (movedUntil[c.name] || 0) > now ? " moved" : "";
+    const path = c.state === "in-transit" ? "leaving " + esc(c.history[c.history.length - 1]) + "…"
+      : c.history.length > 1 ? c.history.map(esc).join(" → ") : "has stayed on " + esc(c.history[0]);
+    return `<div class="cont${moved}">
+      <div class="cont-top"><b>${esc(c.name)}</b><span class="cstate ${c.state}">${CSTATE[c.state] || c.state}</span></div>
+      <div class="cont-where">currently on<span class="at">${esc(c.node_short)}</span></div>
+      <div class="path">${path}<small>${c.moves} move${c.moves === 1 ? "" : "s"}</small></div></div>`;
+  }).join("");
+}
+
+function renderEvents(events) {
+  const sig = events.map(e => e.id).join(",");
+  if (sig === evSignature) return;
+  evSignature = sig;
+  const first = seenEvents === null;
+  if (first) seenEvents = new Set();
+  $("#evCount").textContent = events.length ? events.length + " events" : "";
+  $("#events").innerHTML = events.length
+    ? events.map(e => {
+        const [label, cls] = EVENT_TYPES[e.type] || [e.type, "grey"];
+        const fresh = !first && !seenEvents.has(e.id) ? " fresh" : "";
+        return `<div class="ev${fresh}"><time title="${esc(e.ts)}">${clock(e.ts)}</time><span class="tag t-${cls}">${esc(label)}</span><span class="msg">${esc(e.message)}</span><span class="who">${esc(e.node_id.split("-").pop())}</span></div>`;
+      }).join("")
+    : `<div class="empty">Waiting for activity… elections, node failures and migrations will appear here with timestamps.</div>`;
+  events.forEach(e => seenEvents.add(e.id));
+}
+
+async function tick() {
+  try {
+    const r = await fetch("/api/state", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    const s = await r.json();
+    lastOk = Date.now();
+    renderKpis(s.cluster, s.nodes);
+    s.nodes.forEach(renderNode);
+    renderContainers(s.containers);
+    renderEvents(s.events);
+  } catch (e) { /* keep the last good frame; the live pill shows the gap */ }
+}
+
+setInterval(() => {
+  const age = lastOk ? Math.round((Date.now() - lastOk) / 1000) : null;
+  const live = $("#live");
+  live.classList.toggle("off", age == null || age > 6);
+  $("#liveText").textContent = age == null ? "Connecting…" : age > 6 ? "Reconnecting…" : "Live · updated " + (age <= 1 ? "just now" : age + "s ago");
+}, 1000);
+
+tick();
+setInterval(tick, 1500);
+</script>
+</body>
+</html>

@@ -15,6 +15,30 @@ def get_client() -> docker.DockerClient:
     return _client
 
 
+def list_app_containers() -> list[dict]:
+    """Running containers that are NOT this node's own compose-managed
+    infrastructure (node-agent, nginx, advisor, ...) — i.e. the workloads
+    that actually get created by hand or migrated in by /migrate-in, which
+    is what the dashboard tracks moving between nodes. Compose labels every
+    container it starts; run_container/`docker run` containers carry none.
+    """
+    containers = []
+    for c in get_client().containers.list():
+        if "com.docker.compose.project" in (c.labels or {}):
+            continue
+        tags = c.image.tags
+        containers.append(
+            {
+                "name": c.name,
+                "id": c.short_id,
+                "image": tags[0] if tags else c.attrs["Config"]["Image"][:19],
+                "status": c.status,
+                "started_at": c.attrs["State"]["StartedAt"],
+            }
+        )
+    return containers
+
+
 def get_run_config(container_name: str) -> dict:
     """Captures the parts of a running container's config that `docker
     commit` does NOT preserve (port bindings, restart policy, named-volume

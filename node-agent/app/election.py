@@ -3,6 +3,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
+from app import events
 from app.clients import get_json, post_json
 from app.config import settings
 from app.neighbors import PeerRegistry
@@ -15,6 +16,12 @@ class ElectionState:
     def __init__(self):
         self.current_leader: Optional[str] = None
         self.election_in_progress: bool = False
+
+
+# Peers currently excluded as isolated — only so the event log records the
+# transition once, not on every election tick (start_election re-runs every
+# few seconds and would otherwise log the same exclusion forever).
+_isolated_peers: set = set()
 
 
 async def _cluster_peers(registry: PeerRegistry) -> list:
@@ -43,7 +50,11 @@ async def _cluster_peers(registry: PeerRegistry) -> list:
     for p, trust in zip(candidates, trust_bodies):
         if trust is not None and (trust.get("trust_score", 1.0) <= 0.0 or "isolated" in (trust.get("flags") or [])):
             logger.warning("excluding isolated peer %s from election in %s/%s", p.node_id, settings.REGION, settings.CLUSTER)
+            if p.node_id not in _isolated_peers:
+                _isolated_peers.add(p.node_id)
+                events.record("peer_isolated", f"{p.node_id} is isolated (trust 0) — excluded from election", peer=p.node_id)
             continue
+        _isolated_peers.discard(p.node_id)
         peers.append(p)
     return peers
 
@@ -78,6 +89,7 @@ async def _become_leader(registry: PeerRegistry, state: ElectionState) -> None:
     is_new_leader = state.current_leader != settings.NODE_ID
     if is_new_leader:
         logger.warning("this node is now the leader of %s/%s", settings.REGION, settings.CLUSTER)
+        events.record("leader_elected", f"{settings.NODE_ID} won the election and is now leader")
     state.current_leader = settings.NODE_ID
 
     # Always (re-)announce to every currently-known cluster peer, even if

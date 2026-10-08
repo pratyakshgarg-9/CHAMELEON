@@ -2,6 +2,7 @@ from typing import Optional
 
 from fastapi import HTTPException, Request
 
+from app import events
 from app.clients import post_json
 from app.config import settings
 from app.election import ElectionState
@@ -47,5 +48,11 @@ async def require_cn_matches(claimed_node_id: Optional[str], verified_cn: Option
     if verified_cn is None:
         raise HTTPException(403, "mTLS enabled but no verified client CN present")
     if verified_cn != claimed_node_id:
+        events.record(
+            "cn_rejected",
+            f"Rejected: certificate for {verified_cn} claimed to be {claimed_node_id}",
+            claimed=claimed_node_id,
+            cn=verified_cn,
+        )
         await post_json(f"{settings.TRUST_URL}/trust/report", {"node_id": verified_cn, "event_type": "auth_failure"})
         raise HTTPException(403, f"claimed node_id {claimed_node_id!r} does not match verified cert CN {verified_cn!r}")

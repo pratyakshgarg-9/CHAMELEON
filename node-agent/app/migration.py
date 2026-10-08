@@ -4,8 +4,9 @@ import logging
 
 from docker.errors import NotFound
 
-from app import docker_client
+from app import docker_client, events
 from app.clients import post_multipart
+from app.config import settings
 from app.models import MigrateOutResponse
 from app.neighbors import PeerRegistry
 
@@ -33,6 +34,14 @@ async def migrate_container(
     except NotFound:
         raise ContainerNotFound(container_name)
 
+    events.record(
+        "migration_started",
+        f"Migrating {container_name}: {settings.NODE_ID} → {destination_node}",
+        container=container_name,
+        source=settings.NODE_ID,
+        destination=destination_node,
+    )
+
     image_tag = await asyncio.to_thread(docker_client.stop_commit_remove, container_name)
 
     # Stateful data, if any — a *parallel* step alongside the image transfer
@@ -55,12 +64,23 @@ async def migrate_container(
     files = {"file": (f"{container_name}.tar", tar_bytes, "application/x-tar")}
     if volume_tar_bytes is not None:
         files["data"] = (f"{volume_name}.tar", volume_tar_bytes, "application/x-tar")
-    data = {"metadata": json.dumps({"container_name": container_name, "run_config": run_config})}
+    data = {
+        "metadata": json.dumps(
+            {"container_name": container_name, "run_config": run_config, "source_node": settings.NODE_ID}
+        )
+    }
     result = await post_multipart(f"{destination.url}/migrate-in", files, data)
 
     if result is None:
         logger.warning(
             "migrate-out of %s to %s failed — restarting locally", container_name, destination.node_id
+        )
+        events.record(
+            "migration_failed",
+            f"Migration of {container_name} to {destination.node_id} failed — restarting it on {settings.NODE_ID}",
+            container=container_name,
+            source=settings.NODE_ID,
+            destination=destination.node_id,
         )
         container = await asyncio.to_thread(
             docker_client.run_container, image_tag, container_name, run_config
@@ -74,6 +94,13 @@ async def migrate_container(
         )
 
     await asyncio.to_thread(docker_client.remove_image, image_tag)
+    events.record(
+        "migration_completed",
+        f"{container_name} migrated: {settings.NODE_ID} → {destination.node_id}",
+        container=container_name,
+        source=settings.NODE_ID,
+        destination=destination.node_id,
+    )
     return MigrateOutResponse(
         status="migrated",
         container_name=container_name,

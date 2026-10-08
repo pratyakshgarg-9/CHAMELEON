@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import time
 from collections import deque
+from typing import Optional
 
 import psutil
 from datetime import datetime, timezone
@@ -43,8 +45,31 @@ async def _fetch_trust_score() -> float:
     return float(body.get("trust_score", 1.0))
 
 
-async def build_stats_payload(registry: PeerRegistry) -> StatsPayload:
-    trust_score = await _fetch_trust_score()
+_trust_cache: Optional[tuple] = None  # (score, monotonic timestamp)
+_TRUST_CACHE_TTL_SECONDS = 15.0
+
+
+async def _cached_trust_score(timeout: float) -> float:
+    """Trust score for the dashboard path: bounded wait + short cache, so a
+    slow or dead trust-service can never make this node look dead. (The
+    peer-facing /stats keeps the live lookup — see build_stats_payload.)
+    Falls back to the last known value, then to the same 1.0 default
+    _fetch_trust_score already uses when trust-service is unreachable.
+    """
+    global _trust_cache
+    now = time.monotonic()
+    if _trust_cache is not None and now - _trust_cache[1] < _TRUST_CACHE_TTL_SECONDS:
+        return _trust_cache[0]
+    try:
+        score = await asyncio.wait_for(_fetch_trust_score(), timeout)
+    except asyncio.TimeoutError:
+        score = _trust_cache[0] if _trust_cache is not None else 1.0
+    _trust_cache = (score, now)
+    return score
+
+
+async def build_stats_payload(registry: PeerRegistry, *, cached_trust: bool = False) -> StatsPayload:
+    trust_score = await _cached_trust_score(timeout=1.0) if cached_trust else await _fetch_trust_score()
 
     # Populated by the outbound heartbeat loop (app/heartbeat_loop.py) as it
     # measures round-trip time to each neighbor. A peer that hasn't answered

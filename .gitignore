@@ -42,3 +42,7 @@ trust-service/certs/*.crt
 coordinator/certs/*.key
 coordinator/certs/*.csr
 coordinator/certs/*.crt
+
+# Dashboard client certificate
+dashboard/certs/*.key
+dashboard/certs/*.crt

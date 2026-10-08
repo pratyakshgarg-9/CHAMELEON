@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
-from app import docker_client
+from app import docker_client, events
 from app.config import settings
 from app.deps import get_registry
 from app.migration import ContainerNotFound, migrate_container
@@ -50,5 +50,14 @@ async def migrate_in(
 
     if not healthy:
         raise HTTPException(500, f"container {container_name!r} did not reach a running state")
+
+    source = meta.get("source_node") or "a peer"
+    events.record(
+        "migration_received",
+        f"{container_name} arrived from {source} and is running on {settings.NODE_ID}",
+        container=container_name,
+        source=source,
+        destination=settings.NODE_ID,
+    )
 
     return MigrateInResponse(status="running", container_name=container_name, node_id=settings.NODE_ID)

@@ -4,6 +4,7 @@ import logging
 import psutil
 from pydantic import ValidationError
 
+from app import events
 from app.clients import get_json, post_json
 from app.config import settings
 from app.migration import ContainerNotFound, migrate_container
@@ -152,6 +153,12 @@ async def scheduler_tick(registry: PeerRegistry, tracker: OverloadTracker) -> No
         "sustained overload detected (cpu=%.1f%% mem=%.1f%%) — asking advisor for a migration target",
         cpu,
         mem,
+    )
+    events.record(
+        "overload_detected",
+        f"{settings.NODE_ID} overloaded (cpu {cpu:.0f}%, mem {mem:.0f}%) — asking advisor for a target",
+        cpu=cpu,
+        mem=mem,
     )
     await _attempt_migration(registry)
 

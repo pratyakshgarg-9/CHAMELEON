@@ -86,6 +86,34 @@ curl http://<any-tailscale-ip>:8000/neighbors   # latency_ms = real inter-VM RTT
 curl http://<any-tailscale-ip>:8000/leader      # should converge to one node
 ```
 
+## Live dashboard (2026-10-09)
+
+Replaces watching three terminals: one page showing each node's health and
+CPU/memory, the current leader, where each application container is running, and a
+merged timestamped event log. Lives in `../../dashboard` (see its README); runs on
+edge1 as the `dashboard` service in `deploy/edge1-services`, bound to loopback and
+viewed through an SSH tunnel (`ssh -L 8080:127.0.0.1:8080 ubuntu@<edge1-ip>`, then
+`http://localhost:8080`). Needs its own cert (`--node-id dashboard`).
+
+Node-agent grew a `GET /status` endpoint for it (one round trip per node: stats,
+leader, neighbors, running app containers, and events since a cursor) and an
+in-memory event log (`app/events.py`).
+
+Verified live on the 3 AWS nodes over real mTLS: all three nodes + leader shown;
+a real `/migrate-out` of `demo-app` edge2 → edge3 appeared as Migrating → Migrated
+and the container moved between node cards; stopping the leader's node-agent
+produced, in true order, node down → leader lost → election won → new leader
+selected, and restarting it produced node back online → election won → leader
+reclaimed.
+
+Things found while building it, worth knowing:
+- `/status` must never wait on trust-service, or a slow trust-service makes healthy
+  nodes look DOWN. It uses a short bounded lookup with a 15s cache.
+- **edge1 is the tight node**: its containers use only ~200MB, but the OS, Docker and
+  Tailscale leave only ~124MB free of 914MB. Migrations buffer the whole image in
+  memory, so start the demo app on **edge2** (≈400MB free) and migrate it from
+  there — not from edge1. A swap file on edge1 would add headroom if that's wanted.
+
 ## Live demo: automatic migration under real load (2026-09-19)
 
 The scheduler -> advisor -> migration pipeline had code and a manual
